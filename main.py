@@ -337,7 +337,7 @@ def extract(image_path, key, K):
 
     return msg_extracted
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Advanced DCT-based Spread Spectrum Watermarking Tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -347,7 +347,7 @@ if _name_ == "_main_":
     embed_parser.add_argument("--message", required=True, help="Message to embed (max 128 chars)")
     embed_parser.add_argument("--output", required=True, help="Output watermarked color image path")
     embed_parser.add_argument("--key", type=int, required=True, help="Key for pseudo-random sequence and encryption")
-    embed_parser.add_argument("--alpha", type=float, default=1.0, help="Initial embedding strength (default: 1.0)")
+    embed_parser.add_argument("--alpha", type=float, default=0.5, help="Initial embedding strength (default: 0.5)")
     embed_parser.add_argument("--K", type=int, default=500, help="Initial coefficients per bit (default: 500)")
 
     # Extract command
