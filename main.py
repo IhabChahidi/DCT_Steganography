@@ -189,17 +189,17 @@ def embed(image_path, message, output_path, key, alpha, K):
     # Divide into 8x8 blocks and apply DCT for each channel
     num_blocks_i, num_blocks_j = h // 8, w // 8
     dct_blocks = [[] for _ in range(3)]
-    # block_variances = [[] for _ in range(3)] # Removed
+    block_variances = [[] for _ in range(3)]
     for bi in range(num_blocks_i):
         for bj in range(num_blocks_j):
             for c, channel in enumerate([b, g, r]):
                 block = channel[bi*8:(bi+1)*8, bj*8:(bj+1)*8]
                 dct_blocks[c].append(cv2.dct(block.astype(np.float32)))
-                # block_variances[c].append(compute_block_variance(block)) # Removed
+                block_variances[c].append(compute_block_variance(block))
     logging.info(f"DCT computed for {len(dct_blocks[0])} blocks per channel")
 
     # Select mid-frequency coefficients
-    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)] # Reverted to original
+    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)]
     pool = [(bi, bj, c, u, v) for bi in range(num_blocks_i)
             for bj in range(num_blocks_j) for c in range(3) for (u, v) in selected_uv]
     N = len(pool)
@@ -243,11 +243,14 @@ def embed(image_path, message, output_path, key, alpha, K):
         idx_list = random.sample(range(N), min(K, N))
         p = [random.choice([1, -1]) for _ in range(len(idx_list))]
         m_i = 2 * encoded_bits[i] - 1
-        current_embedding_strength = 15.0  # Use fixed embedding strength
         for k, idx in enumerate(idx_list):
             bi, bj, c, u, v = pool[idx]
-            dct_blocks[c][bi * num_blocks_j + bj][u, v] += current_embedding_strength * m_i * p[k]
-        logging.info(f"Bit {i} embedded with fixed_strength={current_embedding_strength:.4f}, K={len(idx_list)}")
+            # Adaptive alpha based on block variance
+            variance = block_variances[c][bi * num_blocks_j + bj]
+            adaptive_alpha = alpha * (1 + variance / 1000)  # Scale alpha with variance
+            adaptive_alpha = min(adaptive_alpha, 1.0)  # Cap at 1.0
+            dct_blocks[c][bi * num_blocks_j + bj][u, v] += adaptive_alpha * m_i * p[k]
+        logging.info(f"Bit {i} embedded with adaptive_alpha={adaptive_alpha:.4f}, K={len(idx_list)}")
 
     # Reconstruct image
     watermarked_blocks = [[cv2.idct(dct_block) for dct_block in channel_blocks] for channel_blocks in dct_blocks]
@@ -297,7 +300,7 @@ def extract(image_path, key, K):
     logging.info(f"DCT computed for {len(dct_blocks[0])} blocks per channel")
 
     # Define coefficient pool
-    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)] # Reverted to original
+    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)]
     pool = [(bi, bj, c, u, v) for bi in range(num_blocks_i)
             for bj in range(num_blocks_j) for c in range(3) for (u, v) in selected_uv]
     N = len(pool)
@@ -411,7 +414,7 @@ def extract(image_path, key, K):
 
     return msg_extracted
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     parser = argparse.ArgumentParser(description="Advanced DCT-based Spread Spectrum Watermarking Tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -421,7 +424,7 @@ if __name__ == "__main__":
     embed_parser.add_argument("--message", required=True, help="Message to embed (max 128 chars)")
     embed_parser.add_argument("--output", required=True, help="Output watermarked color image path")
     embed_parser.add_argument("--key", type=int, required=True, help="Key for pseudo-random sequence and encryption")
-    embed_parser.add_argument("--alpha", type=float, default=15.0, help="Initial embedding strength (default: 15.0)")
+    embed_parser.add_argument("--alpha", type=float, default=1.0, help="Initial embedding strength (default: 1.0)")
     embed_parser.add_argument("--K", type=int, default=500, help="Initial coefficients per bit (default: 500)")
 
     # Extract command
