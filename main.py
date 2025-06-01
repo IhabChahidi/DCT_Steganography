@@ -171,7 +171,7 @@ def embed(image_path, message, output_path, key, alpha, K):
             # Adaptive alpha based on block variance
             variance = block_variances[c][bi * num_blocks_j + bj]
             adaptive_alpha = alpha * (1 + variance / 1000)  # Scale alpha with variance
-            adaptive_alpha = min(adaptive_alpha, 1.0)  # Cap at 1.0
+            # adaptive_alpha = min(adaptive_alpha, 1.0)  # Cap at 1.0 - REMOVED
             dct_blocks[c][bi * num_blocks_j + bj][u, v] += adaptive_alpha * m_i * p[k]
         logging.info(f"Bit {i} embedded with adaptive_alpha={adaptive_alpha:.4f}, K={len(idx_list)}")
 
@@ -231,8 +231,8 @@ def extract(image_path, key, K):
 
     # Extract length (28 encoded bits for 16-bit length)
     len_encoded_extracted = []
-    max_alpha = 1.0
-    current_alpha = 0.1
+    # max_alpha = 1.0 # REMOVED
+    # current_alpha = 0.1 # REMOVED
     current_K = K
     max_attempts = 5
     attempt = 0
@@ -253,7 +253,7 @@ def extract(image_path, key, K):
             c = sum_corr / count if count > 0 else 0
             bit = 1 if c > 0 else 0
             len_encoded_extracted.append(bit)
-            logging.info(f"Length bit {i}, sum_corr={sum_corr:.4f}, c={c:.4f}, bit={bit}, alpha={current_alpha}, K={current_K}")
+            logging.info(f"Length bit {i}, sum_corr={sum_corr:.4f}, c={c:.4f}, bit={bit}, K={current_K}") # alpha logging REMOVED
 
         # Decode length
         len_bits_extracted = []
@@ -267,9 +267,11 @@ def extract(image_path, key, K):
         if L > 0 and L <= 1024 and L % 128 == 0:  # Ensure L corresponds to a multiple of 16 bytes
             break
         attempt += 1
-        current_alpha = min(current_alpha * 2, max_alpha)
+        # current_alpha = min(current_alpha * 2, max_alpha) # REMOVED
         current_K = min(current_K * 2, N)
-        logging.info(f"Attempt {attempt} failed, adjusting alpha to {current_alpha}, K to {current_K}")
+        # logging.info(f"Attempt {attempt} failed, adjusting alpha to {current_alpha}, K to {current_K}") # REMOVED alpha logging
+        logging.info(f"Attempt {attempt} failed, adjusting K to {current_K}")
+
 
     if attempt >= max_attempts:
         raise ValueError("Failed to extract valid length after maximum attempts")
@@ -279,7 +281,7 @@ def extract(image_path, key, K):
     M_msg = num_chunks * 7
     msg_encoded_extracted = []
     attempt = 0
-    current_alpha = 0.1
+    # current_alpha = 0.1 # REMOVED
     current_K = K
 
     while attempt < max_attempts:
@@ -297,7 +299,7 @@ def extract(image_path, key, K):
             c = sum_corr / count if count > 0 else 0
             bit = 1 if c > 0 else 0
             msg_encoded_extracted.append(bit)
-            logging.info(f"Message bit {i-28}, sum_corr={sum_corr:.4f}, c={c:.4f}, bit={bit}, alpha={current_alpha}, K={current_K}")
+            logging.info(f"Message bit {i-28}, sum_corr={sum_corr:.4f}, c={c:.4f}, bit={bit}, K={current_K}") # alpha logging REMOVED
 
         # Decode message
         msg_bits_extracted = []
@@ -328,16 +330,17 @@ def extract(image_path, key, K):
             logging.error(f"Decoding error: {str(e)}")
 
         attempt += 1
-        current_alpha = min(current_alpha * 2, max_alpha)
+        # current_alpha = min(current_alpha * 2, max_alpha) # REMOVED
         current_K = min(current_K * 2, N)
-        logging.info(f"Attempt {attempt} failed, adjusting alpha to {current_alpha}, K to {current_K}")
+        # logging.info(f"Attempt {attempt} failed, adjusting alpha to {current_alpha}, K to {current_K}") # REMOVED alpha logging
+        logging.info(f"Attempt {attempt} failed, adjusting K to {current_K}")
 
     if attempt >= max_attempts:
         raise ValueError("Failed to extract valid message after maximum attempts")
 
     return msg_extracted
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Advanced DCT-based Spread Spectrum Watermarking Tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
