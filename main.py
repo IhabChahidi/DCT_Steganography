@@ -12,6 +12,7 @@ from tqdm import tqdm
 from typing import List
 
 # --- Constants ---
+SUPPORTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff']
 BLOCK_SIZE = 8
 AES_KEY_SIZE_BYTES = 32
 IV_SIZE_BYTES = 16
@@ -28,6 +29,94 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Imports for Key Derivation
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend as crypto_default_backend # Renamed to avoid clash
+
+import configparser # For loading configuration
+
+# --- Configuration Defaults ---
+CONFIG_FILE_NAME = "config.ini"
+# Hardcoded defaults, will be used if config file is missing or values are not set
+DEFAULT_ALPHA = 1.0
+DEFAULT_K = 500
+DEFAULT_PBKDF2_SALT_HEX = "da9a03cc072f1a8d9efab21536de887d" # Default salt as hex
+
+# Script's main docstring or a prominent comment should mention config.ini:
+# """
+# Advanced DCT-based Spread Spectrum Watermarking Tool.
+# Supports embedding and extracting messages in/from images.
+# Configuration can be set in 'config.ini':
+# [Defaults]
+# alpha = 1.0
+# k = 500
+# pbkdf2_salt_hex = your_hex_salt_here
+# """
+
+def _load_config() -> tuple[float, int, bytes]:
+    """
+    Loads configuration from config.ini, with fallbacks to hardcoded defaults.
+
+    Returns:
+        A tuple containing: (alpha, k, pbkdf2_salt_bytes)
+    """
+    config = configparser.ConfigParser()
+    loaded_files = config.read(CONFIG_FILE_NAME)
+
+    if not loaded_files:
+        logging.info(f"Configuration file '{CONFIG_FILE_NAME}' not found or empty. Using hardcoded defaults.")
+        default_salt_bytes = bytes.fromhex(DEFAULT_PBKDF2_SALT_HEX)
+        return DEFAULT_ALPHA, DEFAULT_K, default_salt_bytes
+
+    conf_alpha = DEFAULT_ALPHA
+    conf_k = DEFAULT_K
+    pbkdf2_salt_hex_from_config = DEFAULT_PBKDF2_SALT_HEX
+
+    if 'Defaults' in config:
+        conf_alpha = config.getfloat('Defaults', 'alpha', fallback=DEFAULT_ALPHA)
+        conf_k = config.getint('Defaults', 'k', fallback=DEFAULT_K)
+        pbkdf2_salt_hex_from_config = config.get('Defaults', 'pbkdf2_salt_hex', fallback=DEFAULT_PBKDF2_SALT_HEX)
+        logging.info(f"Loaded configuration from '{CONFIG_FILE_NAME}': alpha={conf_alpha}, k={conf_k}, salt_hex='{pbkdf2_salt_hex_from_config[:8]}...'")
+    else:
+        logging.warning(f"Section [Defaults] not found in '{CONFIG_FILE_NAME}'. Using hardcoded defaults for all values.")
+
+    # Convert hex salt from config to bytes
+    try:
+        conf_pbkdf2_salt_bytes = bytes.fromhex(pbkdf2_salt_hex_from_config)
+        if len(conf_pbkdf2_salt_bytes) < 8: # Basic sanity check for salt length
+            logging.warning(f"Configured PBKDF2 salt is very short (length {len(conf_pbkdf2_salt_bytes)}). Using default salt instead.")
+            conf_pbkdf2_salt_bytes = bytes.fromhex(DEFAULT_PBKDF2_SALT_HEX)
+    except ValueError:
+        logging.error(f"Invalid hex value for pbkdf2_salt_hex in '{CONFIG_FILE_NAME}'. Using default salt.")
+        conf_pbkdf2_salt_bytes = bytes.fromhex(DEFAULT_PBKDF2_SALT_HEX)
+
+    return conf_alpha, conf_k, conf_pbkdf2_salt_bytes
+
+def _derive_key_material(passphrase: str, salt: bytes, iterations: int, output_length: int) -> bytes:
+    """
+    Derives a key of specified length from a passphrase using PBKDF2-HMAC-SHA256.
+
+    Args:
+        passphrase: The user-provided passphrase string.
+        salt: The salt to use for key derivation.
+        iterations: The number of iterations for PBKDF2.
+        output_length: The desired length of the derived key material in bytes.
+
+    Returns:
+        The derived key material as bytes.
+    """
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=output_length,
+        salt=salt,
+        iterations=iterations,
+        backend=crypto_default_backend() # Use the aliased import
+    )
+    key_material = kdf.derive(passphrase.encode('utf-8'))
+    logging.info(f"Derived {output_length} bytes of key material using PBKDF2.")
+    return key_material
 
 def hamming_encode(data_bits: List[int]) -> List[int]:
     """
@@ -68,53 +157,48 @@ def hamming_decode(codeword: List[int]) -> List[int]:
         codeword[error_pos] ^= 1
     return [codeword[2], codeword[4], codeword[5], codeword[6]]
 
-def generate_key_stream(length: int, key: int) -> List[int]:
-    """Generate a pseudo-random key stream for encryption."""
-    rand = Random(key)
-    return [rand.randint(0, 255) for _ in range(length)]
+# generate_key_stream has been removed as key material for AES is derived by PBKDF2.
 
-def aes_encrypt(message_bytes: bytes, key: int) -> bytes:
+def aes_encrypt(message_bytes: bytes, aes_key_bytes: bytes) -> bytes:
     """
-    Encrypts message bytes using AES-256-CBC encryption.
+    Encrypts message bytes using AES-256-CBC encryption with a provided key.
 
-    A pseudo-random key stream is generated based on the provided integer key.
     An Initialization Vector (IV) is randomly generated and prepended to the
     encrypted output. PKCS7 padding is applied to the message before encryption.
 
     Args:
         message_bytes: The byte string to be encrypted.
-        key: An integer key used to seed the pseudo-random key stream generator.
+        aes_key_bytes: The raw AES key (e.g., 32 bytes for AES-256) for encryption.
 
     Returns:
         A byte string containing the IV prepended to the encrypted message.
     """
-    key_bytes = bytes(generate_key_stream(AES_KEY_SIZE_BYTES, key))  # AES-256
+    # aes_key_bytes is now directly passed.
     iv = os.urandom(IV_SIZE_BYTES)  # IV
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    cipher = Cipher(algorithms.AES(aes_key_bytes), modes.CBC(iv), backend=default_backend())
     encryptor = cipher.encryptor()
     # Pad message to multiple of IV_SIZE_BYTES bytes
     pad_length = IV_SIZE_BYTES - (len(message_bytes) % IV_SIZE_BYTES)
     padded_message = message_bytes + bytes([pad_length] * pad_length)
     encrypted = encryptor.update(padded_message) + encryptor.finalize()
-    logging.info(f"Message encrypted with AES-256, length: {len(encrypted)} bytes")
+    logging.info(f"Message encrypted with AES-256 (using derived key), length: {len(encrypted)} bytes")
     return iv + encrypted  # Prepend IV for decryption
 
-def aes_decrypt(encrypted_bytes: bytes, key: int) -> bytes:
+def aes_decrypt(encrypted_bytes: bytes, aes_key_bytes: bytes) -> bytes:
     """
-    Decrypts an AES-256-CBC encrypted byte string.
+    Decrypts an AES-256-CBC encrypted byte string using a provided key.
 
     The Initialization Vector (IV) is extracted from the beginning of the
-    encrypted_bytes. The same integer key used for encryption must be provided
-    to regenerate the key stream. PKCS7 padding is removed after decryption.
+    encrypted_bytes. PKCS7 padding is removed after decryption.
 
     Args:
         encrypted_bytes: The byte string to be decrypted (IV + ciphertext).
-        key: An integer key used to seed the pseudo-random key stream generator.
+        aes_key_bytes: The raw AES key (e.g., 32 bytes for AES-256) for decryption.
 
     Returns:
         The original decrypted byte string.
     """
-    key_bytes = bytes(generate_key_stream(AES_KEY_SIZE_BYTES, key))
+    # aes_key_bytes is now directly passed.
     if len(encrypted_bytes) < IV_SIZE_BYTES:
         raise ValueError("Encrypted data is too short to contain an IV.")
     iv = encrypted_bytes[:IV_SIZE_BYTES]
@@ -123,7 +207,7 @@ def aes_decrypt(encrypted_bytes: bytes, key: int) -> bytes:
     if not ciphertext: # Check if ciphertext is empty after stripping IV
         raise ValueError("Ciphertext is empty after IV stripping. Cannot decrypt.")
 
-    cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv), backend=default_backend())
+    cipher = Cipher(algorithms.AES(aes_key_bytes), modes.CBC(iv), backend=default_backend())
     decryptor = cipher.decryptor()
 
     try:
@@ -200,7 +284,7 @@ def _load_and_prepare_image(image_path: str) -> tuple[np.ndarray, int, int]:
     logging.info(f"Image loaded: {image_path}, Original: {w_orig}x{h_orig}, Padded: {w}x{h}, Blocks: {h//BLOCK_SIZE}x{w//BLOCK_SIZE}")
     return img, h, w
 
-def _prepare_message_for_embedding(message: str, key: int) -> List[int]:
+def _prepare_message_for_embedding(message: str, aes_key_bytes: bytes) -> List[int]:
     """
     Prepares the message for embedding by performing validation, encryption, and encoding.
 
@@ -217,7 +301,7 @@ def _prepare_message_for_embedding(message: str, key: int) -> List[int]:
 
     Args:
         message: The secret message string.
-        key: Integer key for AES encryption.
+        aes_key_bytes: The AES key bytes for encryption.
 
     Returns:
         A list of integers representing the fully encoded bits ready for embedding.
@@ -233,7 +317,7 @@ def _prepare_message_for_embedding(message: str, key: int) -> List[int]:
     message_bytes = message.encode('utf-8')
     crc = compute_crc32(message_bytes)
     message_with_crc = message_bytes + crc.to_bytes(CRC_SIZE_BYTES, 'big')
-    encrypted_bytes = aes_encrypt(message_with_crc, key)
+    encrypted_bytes = aes_encrypt(message_with_crc, aes_key_bytes) # Use aes_key_bytes
     msg_bits = [int(b) for byte in encrypted_bytes for b in format(byte, '08b')]
     L = len(msg_bits)  # This now reflects the actual number of bits after padding
     logging.info(f"Message encrypted and converted to {L} bits")
@@ -294,7 +378,7 @@ def _perform_dct_on_blocks(channels: List[np.ndarray], h: int, w: int) -> tuple[
 def _embed_bits_in_dct(
     dct_blocks: List[List[np.ndarray]],
     encoded_bits: List[int],
-    key: int,
+    derived_seed_int: int, # Changed from key: int
     alpha: float,
     K: int,
     pool: List[tuple[int, int, int, int, int]],
@@ -309,7 +393,7 @@ def _embed_bits_in_dct(
     Args:
         dct_blocks: DCT coefficients for each block and channel.
         encoded_bits: The list of bits (0s and 1s) to embed.
-        key: Integer key for seeding random number generation.
+        derived_seed_int: An integer seed derived from the passphrase, for random number generation.
         alpha: Initial embedding strength.
         K: Number of DCT coefficients to modify for each bit.
         pool: List of available (block_idx_i, block_idx_j, channel, u, v) for embedding.
@@ -318,7 +402,7 @@ def _embed_bits_in_dct(
     """
     N = len(pool)
     for i in tqdm(range(len(encoded_bits)), desc="Embedding bits"):
-        random.seed(key + i)
+        random.seed(derived_seed_int + i) # Use derived_seed_int
         idx_list = random.sample(range(N), min(K, N))
         p = [random.choice([1, -1]) for _ in range(len(idx_list))]
         m_i = 2 * encoded_bits[i] - 1  # Convert bit 0 to -1, 1 to 1
@@ -370,7 +454,7 @@ def _reconstruct_image_from_dct(
 
 def _extract_bits_from_dct(
     dct_blocks: List[List[np.ndarray]],
-    key: int,
+    derived_seed_int: int, # Changed from key: int
     initial_K: int,
     pool: List[tuple[int, int, int, int, int]],
     num_blocks_j: int,
@@ -384,7 +468,7 @@ def _extract_bits_from_dct(
 
     Args:
         dct_blocks: DCT coefficients for each block and channel.
-        key: Integer key for seeding random number generation.
+        derived_seed_int: An integer seed derived from the passphrase, for random number generation.
         initial_K: Initial number of DCT coefficients to check per bit for length extraction.
         pool: List of available (block_idx_i, block_idx_j, channel, u, v) for extraction.
         num_blocks_j: Number of blocks in the horizontal direction.
@@ -412,7 +496,7 @@ def _extract_bits_from_dct(
         len_encoded_extracted.clear()
         logging.info(f"Length extraction attempt {attempt_len + 1}/{max_attempts_len} with K={current_K_len}.")
         for i in tqdm(range(len_encoded_bits_to_extract), desc=f"Extracting length bits (K={current_K_len})"):
-            random.seed(key + i) # Key offset for length bits is 0
+            random.seed(derived_seed_int + i) # Use derived_seed_int
             idx_list = random.sample(range(N), min(current_K_len, N))
             p = [random.choice([1, -1]) for _ in range(len(idx_list))]
             sum_corr = 0
@@ -463,12 +547,12 @@ def _extract_bits_from_dct(
             logging.info(f"Expecting {msg_encoded_bits_to_extract} encoded message bits for L={L}.")
 
             msg_encoded_extracted.clear()
-            # Start extracting message bits from key + len_encoded_bits_to_extract
+            # Start extracting message bits from derived_seed_int + len_encoded_bits_to_extract
             # For message bits, we typically use the initial_K and don't iterate K unless full decoding fails later.
             current_K_msg = initial_K # Or a different K strategy if needed
             for i_msg in tqdm(range(msg_encoded_bits_to_extract), desc=f"Extracting message bits (L={L}, K={current_K_msg})"):
-                actual_key_idx = key + len_encoded_bits_to_extract + i_msg # Key offset for message bits
-                random.seed(actual_key_idx)
+                # The seed for message bits is offset by the number of length bits already processed
+                random.seed(derived_seed_int + len_encoded_bits_to_extract + i_msg)
                 idx_list_msg = random.sample(range(N), min(current_K_msg, N))
                 p_msg = [random.choice([1, -1]) for _ in range(len(idx_list_msg))]
                 sum_corr_msg = 0
@@ -504,7 +588,7 @@ def _extract_bits_from_dct(
 def _decode_extracted_message(
     msg_encoded_bits: List[int], # These are the Hamming encoded message bits
     L: int, # This is the actual length of the original message bits (after AES, before Hamming)
-    key: int
+    aes_key_bytes: bytes
 ) -> str:
     """
     Decodes the extracted message bits, decrypts, and verifies CRC.
@@ -512,7 +596,7 @@ def _decode_extracted_message(
     Args:
         msg_encoded_bits: List of Hamming encoded message bits.
         L: The actual length in bits of the message payload (after AES encryption, before Hamming).
-        key: Integer key for AES decryption.
+        aes_key_bytes: The AES key bytes for decryption.
 
     Returns:
         The extracted and verified secret message string.
@@ -552,7 +636,7 @@ def _decode_extracted_message(
 
     # Decrypt (AES handles IV stripping and unpadding)
     try:
-        decrypted_payload_bytes = aes_decrypt(encrypted_payload_bytes, key)
+        decrypted_payload_bytes = aes_decrypt(encrypted_payload_bytes, aes_key_bytes) # Use aes_key_bytes
     except Exception as e: # aes_decrypt might raise various crypto errors
         logging.error(f"AES decryption failed: {str(e)}")
         raise ValueError(f"AES decryption failed: {str(e)}")
@@ -595,7 +679,7 @@ def compute_block_variance(block: np.ndarray) -> float:
     """Compute variance of an 8x8 block for adaptive embedding."""
     return np.var(block)
 
-def embed(image_path: str, message: str, output_path: str, key: int, alpha: float, K: int) -> None:
+def embed(image_path: str, message: str, output_path: str, passphrase: str, alpha: float, K: int, pbkdf2_salt_bytes: bytes) -> None:
     """
     Embeds a secret message into a color image using DCT-based spread spectrum watermarking.
 
@@ -616,8 +700,7 @@ def embed(image_path: str, message: str, output_path: str, key: int, alpha: floa
         image_path: Path to the input color image (PNG or JPEG).
         message: The secret message string to embed (max 128 characters).
         output_path: Path to save the watermarked output image.
-        key: An integer key for pseudo-random sequence generation (for DCT coefficient selection)
-             and AES encryption.
+        passphrase: The passphrase used to derive the encryption key and random seed.
         alpha: Initial embedding strength (float, typically between 0.01 and 1.0).
                Controls the magnitude of modification to DCT coefficients.
         K: The number of DCT coefficients to use for embedding each bit of the message.
@@ -628,8 +711,16 @@ def embed(image_path: str, message: str, output_path: str, key: int, alpha: floa
         ValueError: If the image is not a 3-channel color image, if the message is too long,
                     or if the image format is not PNG/JPEG.
     """
+    # Derive AES key and random seed from passphrase
+    derived_material = _derive_key_material(passphrase, pbkdf2_salt_bytes, PBKDF2_ITERATIONS, DERIVED_KEY_MATERIAL_SIZE_BYTES)
+    aes_key_bytes = derived_material[:AES_KEY_SIZE_BYTES]
+    # Convert last 4 bytes to an integer for seeding
+    derived_seed_int = int.from_bytes(derived_material[AES_KEY_SIZE_BYTES:], 'big')
+    logging.info(f"AES key and random seed derived from passphrase. Seed integer: {derived_seed_int}")
+
     img, h, w = _load_and_prepare_image(image_path)
-    encoded_bits = _prepare_message_for_embedding(message, key)
+    # Pass aes_key_bytes to _prepare_message_for_embedding
+    encoded_bits = _prepare_message_for_embedding(message, aes_key_bytes)
 
     # Split into channels
     b, g, r = cv2.split(img)
@@ -643,8 +734,8 @@ def embed(image_path: str, message: str, output_path: str, key: int, alpha: floa
     N = len(pool)
     logging.info(f"Coefficient pool size: {N}")
 
-    # Embed each bit with adaptive alpha
-    _embed_bits_in_dct(dct_blocks, encoded_bits, key, alpha, K, pool, block_variances, num_blocks_j)
+    # Embed each bit with adaptive alpha, pass derived_seed_int
+    _embed_bits_in_dct(dct_blocks, encoded_bits, derived_seed_int, alpha, K, pool, block_variances, num_blocks_j)
 
     # Reconstruct image
     # Pass original channel shapes for creating watermarked_channels
@@ -652,7 +743,7 @@ def embed(image_path: str, message: str, output_path: str, key: int, alpha: floa
     cv2.imwrite(output_path, watermarked_img)
     logging.info(f"Image saved to {output_path}")
 
-def extract(image_path: str, key: int, K: int) -> str:
+def extract(image_path: str, passphrase: str, K: int, pbkdf2_salt_bytes: bytes) -> str:
     """
     Extracts a secret message from a DCT-based spread spectrum watermarked color image.
 
@@ -672,8 +763,7 @@ def extract(image_path: str, key: int, K: int) -> str:
 
     Args:
         image_path: Path to the watermarked color image (PNG or JPEG).
-        key: The integer key used during embedding for pseudo-random sequence generation
-             and AES decryption.
+        passphrase: The passphrase used during embedding to derive the key and seed.
         K: The initial number of DCT coefficients per bit to check during extraction.
            The extraction process might adapt this value.
 
@@ -686,6 +776,12 @@ def extract(image_path: str, key: int, K: int) -> str:
                     not PNG/JPEG, or if message extraction fails after multiple attempts
                     (e.g., due to incorrect key, severe image degradation, or no message).
     """
+    # Derive AES key and random seed from passphrase
+    derived_material = _derive_key_material(passphrase, pbkdf2_salt_bytes, PBKDF2_ITERATIONS, DERIVED_KEY_MATERIAL_SIZE_BYTES)
+    aes_key_bytes = derived_material[:AES_KEY_SIZE_BYTES]
+    derived_seed_int = int.from_bytes(derived_material[AES_KEY_SIZE_BYTES:], 'big')
+    logging.info(f"AES key and random seed derived from passphrase for extraction. Seed integer: {derived_seed_int}")
+
     img, h, w = _load_and_prepare_image(image_path)
 
     # Split into channels
@@ -703,19 +799,20 @@ def extract(image_path: str, key: int, K: int) -> str:
 
     len_encoded_bits_to_extract = MESSAGE_LENGTH_BITS * HAMMING_CODEWORD_BITS // HAMMING_DATA_BITS
 
-    # Call the new extraction function
+    # Call the new extraction function, pass derived_seed_int
     # K here is initial_K for length extraction
     _, msg_encoded_extracted, L = _extract_bits_from_dct(
-        dct_blocks, key, K, pool, num_blocks_j, len_encoded_bits_to_extract
+        dct_blocks, derived_seed_int, K, pool, num_blocks_j, len_encoded_bits_to_extract
     )
 
     # The old extraction loop for length and message is now replaced by the call above.
     # The adaptive K for message part and retry logic for full decode will be in _decode_extracted_message
 
-    # Call the new decoding function
-    extracted_message_str = _decode_extracted_message(msg_encoded_extracted, L, key)
+    # Call the new decoding function, pass aes_key_bytes
+    extracted_message_str = _decode_extracted_message(msg_encoded_extracted, L, aes_key_bytes)
     return extracted_message_str
-    current_alpha = 0.1
+    # The following lines seem to be remnants of old logic and should be removed if not already.
+    # current_alpha = 0.1
     current_K = K
     max_attempts = 5
     attempt = 0
@@ -824,22 +921,33 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Advanced DCT-based Spread Spectrum Watermarking Tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    # Load configuration first
+    conf_alpha, conf_k, conf_pbkdf2_salt = _load_config()
+    logging.info(f"Configuration loaded: alpha={conf_alpha}, K={conf_k}, salt='{conf_pbkdf2_salt.hex()[:16]}...'")
+
     # Embed command
-    embed_parser = subparsers.add_parser("embed", help="Embed a message into a color image")
-    embed_parser.add_argument("--image", required=True, help="Input color image path (PNG/JPEG)")
-    embed_parser.add_argument("--message", required=True, help="Message to embed (max 128 chars)")
-    embed_parser.add_argument("--output", required=True, help="Output watermarked color image path")
-    embed_parser.add_argument("--key", type=int, required=True, help="Key for pseudo-random sequence and encryption")
-    embed_parser.add_argument("--alpha", type=float, default=1.0, help="Initial embedding strength (default: 1.0)")
-    embed_parser.add_argument("--K", type=int, default=500, help="Initial coefficients per bit (default: 500)")
+    embed_parser = subparsers.add_parser("embed", help="Embed a message into a color image or directory of images.")
+    embed_parser.add_argument("--image", required=True, help="Input color image path or directory of images.")
+    embed_parser.add_argument("--message", required=True, help="Message to embed (max 128 chars).")
+    embed_parser.add_argument("--output", help="Output watermarked image path (if --image is a single file).")
+    embed_parser.add_argument("--output-dir", help="Output directory for watermarked images (if --image is a directory).")
+    embed_parser.add_argument("--key", type=str, required=True, help="Passphrase for key derivation and encryption.")
+    embed_parser.add_argument("--alpha", type=float, default=conf_alpha, help=f"Initial embedding strength (default from config: {conf_alpha}).")
+    embed_parser.add_argument("--K", type=int, default=conf_k, help=f"Initial coefficients per bit (default from config: {conf_k}).")
 
     # Extract command
-    extract_parser = subparsers.add_parser("extract", help="Extract a message from a color image")
-    extract_parser.add_argument("--image", required=True, help="Input watermarked color image path (PNG/JPEG)")
-    extract_parser.add_argument("--key", type=int, required=True, help="Key used during embedding")
-    extract_parser.add_argument("--K", type=int, default=500, help="Initial coefficients per bit (default: 500)")
+    extract_parser = subparsers.add_parser("extract", help="Extract a message from a color image or directory of images.")
+    extract_parser.add_argument("--image", required=True, help="Input watermarked image path or directory of images.")
+    extract_parser.add_argument("--key", type=str, required=True, help="Passphrase used during embedding.")
+    extract_parser.add_argument("--K", type=int, default=conf_k, help=f"Initial coefficients per bit (default from config: {conf_k}).")
 
     args = parser.parse_args()
+
+    # Log parameter sources
+    if args.command == "embed":
+        logging.info(f"Embed parameters: alpha={args.alpha} (source: {'CLI' if args.alpha != conf_alpha else 'config/default'}), K={args.K} (source: {'CLI' if args.K != conf_k else 'config/default'})")
+    elif args.command == "extract":
+        logging.info(f"Extract parameters: K={args.K} (source: {'CLI' if args.K != conf_k else 'config/default'})")
 
     # Validate command-line arguments
     if args.command == "embed":
@@ -854,12 +962,67 @@ if __name__ == "__main__":
             parser.error("Number of coefficients K must be a positive integer.")
 
     try:
+        image_path_input = args.image
+        is_directory = os.path.isdir(image_path_input)
+
         if args.command == "embed":
-            embed(args.image, args.message, args.output, args.key, args.alpha, args.K)
-            print(f"Message embedded successfully into {args.output}")
+            if is_directory:
+                if not args.output_dir:
+                    parser.error("--output-dir is required when --image is a directory for embed command.")
+                os.makedirs(args.output_dir, exist_ok=True)
+                logging.info(f"Starting batch embedding for directory: {image_path_input} -> {args.output_dir}")
+                processed_files = 0
+                for filename in os.listdir(image_path_input):
+                    if any(filename.lower().endswith(ext) for ext in SUPPORTED_EXTENSIONS):
+                        full_input_path = os.path.join(image_path_input, filename)
+                        output_filename = os.path.join(args.output_dir, filename) # Preserve original filename in output dir
+                        try:
+                            print(f"Embedding message into {filename}...")
+                            embed(full_input_path, args.message, output_filename, args.key, args.alpha, args.K, conf_pbkdf2_salt)
+                            print(f"Successfully embedded message into {output_filename}")
+                            logging.info(f"Successfully embedded message into {full_input_path} -> {output_filename}")
+                            processed_files += 1
+                        except Exception as e:
+                            print(f"Failed to embed message into {filename}: {e}")
+                            logging.error(f"Failed to embed message into {full_input_path}: {e}")
+                    else:
+                        logging.info(f"Skipping non-supported file: {filename}")
+                print(f"Batch embedding complete. Processed {processed_files} image(s).")
+                logging.info(f"Batch embedding complete for directory {image_path_input}. Processed {processed_files} image(s).")
+            else: # Single file
+                if not args.output:
+                    parser.error("--output is required when --image is a single file for embed command.")
+                print(f"Embedding message into {image_path_input}...")
+                embed(image_path_input, args.message, args.output, args.key, args.alpha, args.K, conf_pbkdf2_salt)
+                print(f"Message embedded successfully into {args.output}")
+                logging.info(f"Successfully embedded message into {image_path_input} -> {args.output}")
+
         elif args.command == "extract":
-            message = extract(args.image, args.key, args.K)
-            print(f"Extracted message: {message}")
+            if is_directory:
+                logging.info(f"Starting batch extraction for directory: {image_path_input}")
+                processed_files = 0
+                for filename in os.listdir(image_path_input):
+                    if any(filename.lower().endswith(ext) for ext in SUPPORTED_EXTENSIONS):
+                        full_input_path = os.path.join(image_path_input, filename)
+                        try:
+                            print(f"Extracting message from {filename}...")
+                            message = extract(full_input_path, args.key, args.K, conf_pbkdf2_salt)
+                            print(f"Extracted from {filename}: {message}")
+                            logging.info(f"Extracted from {full_input_path}: {message}")
+                            processed_files += 1
+                        except Exception as e:
+                            print(f"Failed to extract message from {filename}: {e}")
+                            logging.error(f"Failed to extract message from {full_input_path}: {e}")
+                    else:
+                        logging.info(f"Skipping non-supported file: {filename}")
+                print(f"Batch extraction complete. Processed {processed_files} image(s).")
+                logging.info(f"Batch extraction complete for directory {image_path_input}. Processed {processed_files} image(s).")
+            else: # Single file
+                print(f"Extracting message from {image_path_input}...")
+                message = extract(image_path_input, args.key, args.K, conf_pbkdf2_salt)
+                print(f"Extracted message: {message}")
+                logging.info(f"Extracted message from {image_path_input}: {message}")
+
     except Exception as e:
-        logging.error(f"Operation failed: {str(e)}") # More generic message for logging
-        print(f"Error: {str(e)}") # Print specific error to console
+        logging.error(f"Operation failed: {str(e)}")
+        print(f"Error: {str(e)}")
