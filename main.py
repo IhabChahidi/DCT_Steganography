@@ -1,3 +1,80 @@
+"""
+Advanced DCT-based Spread Spectrum Watermarking Tool
+
+Overview:
+This script implements a digital image watermarking technique based on the
+Discrete Cosine Transform (DCT) and spread spectrum principles. The core idea is
+to embed a secret message into the mid-frequency DCT coefficients of an image.
+The message is first encrypted using AES, then encoded with Hamming codes for error
+correction, and finally embedded by subtly modifying selected DCT coefficients.
+Extraction attempts to reverse this process.
+
+Watermarking Scheme:
+1.  Message Preparation:
+    - The secret message is encoded to UTF-8.
+    - A CRC32 checksum is appended for integrity verification.
+    - The combined message+CRC is encrypted using AES-256-CBC. The IV is prepended.
+    - The length of the encrypted bitstream is also encoded using Hamming codes.
+    - The encrypted bitstream itself is encoded using Hamming(7,4) codes.
+2.  Image Preparation:
+    - The input image is converted to BGR color space.
+    - Each color channel is divided into 8x8 blocks.
+    - DCT is applied to each block.
+3.  Coefficient Selection & Embedding:
+    - A pool of mid-frequency AC coefficients (typically (1,1) to (7,7) within each 8x8 block,
+      excluding the DC coefficient) is created from all color channels.
+    - For each bit of the combined (length + message) encoded bitstream:
+        - A pseudo-random subset of K coefficients is chosen from the pool using a
+          secret key and the bit's index to seed the RNG.
+        - A pseudo-random pattern p (of +1 or -1) of length K is generated.
+        - The bit (m_i, converted to +1 or -1) is embedded by modifying the selected
+          coefficients: X'_uv = X_uv + strength * m_i * p_k.
+        - Initially, an adaptive strength mechanism was used, but current tests also
+          explore fixed strength.
+4.  Image Reconstruction:
+    - Inverse DCT (IDCT) is applied to each block.
+    - Pixel values are clipped to [0, 255] and converted to uint8.
+    - The watermarked image is saved.
+5.  Extraction:
+    - The watermarked image is processed (DCT on 8x8 blocks).
+    - For each bit to be extracted (first length, then message):
+        - The same K coefficients are selected using the key and bit index.
+        - The same pseudo-random pattern p is generated.
+        - The correlation sum = sum(X'_uv * p_k) is computed.
+        - The extracted bit is determined by the sign of this sum.
+    - Hamming decoding and AES decryption are applied to recover the message.
+    - CRC32 checksum is verified.
+
+Known Limitations & Observations from `sample_image.png` testing:
+-   Sensitivity to Image Content: The algorithm's performance is highly dependent
+    on the characteristics of the input image.
+-   Failure on Simple/Artificial Images: Extensive testing with a generated
+    64x64px image (`sample_image.png`) featuring large flat color areas and sharp
+    contrasts consistently resulted in extraction failures.
+    -   The core issue is that the "noise" term, derived from the original image's
+        DCT coefficients (sum(X_uv * p_k) / K), often overwhelms the embedded signal
+        term (strength * m_i). This prevents correct bit recovery.
+    -   Attempts to tune parameters like embedding strength (`alpha`), number of
+        coefficients per bit (`K`), and the specific DCT frequency bands used
+        (e.g., `(1,1)-(7,7)` vs. `(4,4)-(7,7)`) did not reliably overcome this issue
+        for `sample_image.png`.
+        -   Low strength (e.g., alpha=1.0) leads to the signal being lost in
+            quantization noise (when converting float DCT back to uint8 pixels).
+        -   High strength (e.g., alpha=15.0 or adaptive values reaching 10.0 or more)
+            leads to significant clipping of pixel values during uint8 conversion.
+            This non-linear clipping corrupts the embedded signal, again making
+            extraction fail as the linear model X' = X + signal is violated.
+-   Suitability for Textured Images: It is hypothesized that the algorithm might
+    perform better on textured, natural images where DCT coefficients are more
+    evenly distributed and potentially have lower individual magnitudes in the
+    mid-frequencies, or where the variance calculation for adaptive alpha could
+    be more meaningful. However, this has not been verified in the current test
+    environment.
+
+This comment block was added after a series of systematic tests documented in
+the commit history, which revealed these limitations when applied to the
+`sample_image.png` created for testing.
+"""
 import cv2
 import numpy as np
 import random
@@ -112,17 +189,17 @@ def embed(image_path, message, output_path, key, alpha, K):
     # Divide into 8x8 blocks and apply DCT for each channel
     num_blocks_i, num_blocks_j = h // 8, w // 8
     dct_blocks = [[] for _ in range(3)]
-    block_variances = [[] for _ in range(3)]
+    # block_variances = [[] for _ in range(3)] # Removed
     for bi in range(num_blocks_i):
         for bj in range(num_blocks_j):
             for c, channel in enumerate([b, g, r]):
                 block = channel[bi*8:(bi+1)*8, bj*8:(bj+1)*8]
                 dct_blocks[c].append(cv2.dct(block.astype(np.float32)))
-                block_variances[c].append(compute_block_variance(block))
+                # block_variances[c].append(compute_block_variance(block)) # Removed
     logging.info(f"DCT computed for {len(dct_blocks[0])} blocks per channel")
 
     # Select mid-frequency coefficients
-    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)]
+    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)] # Reverted to original
     pool = [(bi, bj, c, u, v) for bi in range(num_blocks_i)
             for bj in range(num_blocks_j) for c in range(3) for (u, v) in selected_uv]
     N = len(pool)
@@ -166,14 +243,11 @@ def embed(image_path, message, output_path, key, alpha, K):
         idx_list = random.sample(range(N), min(K, N))
         p = [random.choice([1, -1]) for _ in range(len(idx_list))]
         m_i = 2 * encoded_bits[i] - 1
+        current_embedding_strength = 15.0  # Use fixed embedding strength
         for k, idx in enumerate(idx_list):
             bi, bj, c, u, v = pool[idx]
-            # Adaptive alpha based on block variance
-            variance = block_variances[c][bi * num_blocks_j + bj]
-            adaptive_alpha = alpha * (1 + variance / 1000)  # Scale alpha with variance
-            adaptive_alpha = min(adaptive_alpha, 1.0)  # Cap at 1.0
-            dct_blocks[c][bi * num_blocks_j + bj][u, v] += adaptive_alpha * m_i * p[k]
-        logging.info(f"Bit {i} embedded with adaptive_alpha={adaptive_alpha:.4f}, K={len(idx_list)}")
+            dct_blocks[c][bi * num_blocks_j + bj][u, v] += current_embedding_strength * m_i * p[k]
+        logging.info(f"Bit {i} embedded with fixed_strength={current_embedding_strength:.4f}, K={len(idx_list)}")
 
     # Reconstruct image
     watermarked_blocks = [[cv2.idct(dct_block) for dct_block in channel_blocks] for channel_blocks in dct_blocks]
@@ -223,7 +297,7 @@ def extract(image_path, key, K):
     logging.info(f"DCT computed for {len(dct_blocks[0])} blocks per channel")
 
     # Define coefficient pool
-    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)]
+    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)] # Reverted to original
     pool = [(bi, bj, c, u, v) for bi in range(num_blocks_i)
             for bj in range(num_blocks_j) for c in range(3) for (u, v) in selected_uv]
     N = len(pool)
@@ -337,7 +411,7 @@ def extract(image_path, key, K):
 
     return msg_extracted
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Advanced DCT-based Spread Spectrum Watermarking Tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -347,7 +421,7 @@ if _name_ == "_main_":
     embed_parser.add_argument("--message", required=True, help="Message to embed (max 128 chars)")
     embed_parser.add_argument("--output", required=True, help="Output watermarked color image path")
     embed_parser.add_argument("--key", type=int, required=True, help="Key for pseudo-random sequence and encryption")
-    embed_parser.add_argument("--alpha", type=float, default=1.0, help="Initial embedding strength (default: 1.0)")
+    embed_parser.add_argument("--alpha", type=float, default=15.0, help="Initial embedding strength (default: 15.0)")
     embed_parser.add_argument("--K", type=int, default=500, help="Initial coefficients per bit (default: 500)")
 
     # Extract command
