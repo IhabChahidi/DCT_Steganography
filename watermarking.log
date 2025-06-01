@@ -1,0 +1,212 @@
+2025-06-01 02:47:21,856 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:47:22,024 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:47:22,107 - INFO - Message decrypted with AES-256, length: 11 bytes
+2025-06-01 02:47:22,191 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:47:22,275 - INFO - Message decrypted with AES-256, length: 0 bytes
+2025-06-01 02:47:22,358 - INFO - Message encrypted with AES-256, length: 1376 bytes (excluding salt and IV)
+2025-06-01 02:47:22,441 - INFO - Message decrypted with AES-256, length: 1360 bytes
+2025-06-01 02:47:22,525 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:47:22,609 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:47:22,692 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:47:22,775 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:48:17,549 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:17,716 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:17,799 - INFO - Message decrypted with AES-256, length: 11 bytes
+2025-06-01 02:48:17,883 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:17,966 - INFO - Message decrypted with AES-256, length: 0 bytes
+2025-06-01 02:48:18,050 - INFO - Message encrypted with AES-256, length: 1376 bytes (excluding salt and IV)
+2025-06-01 02:48:18,133 - INFO - Message decrypted with AES-256, length: 1360 bytes
+2025-06-01 02:48:18,217 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:18,300 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:18,382 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:48:18,465 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:48:19,214 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:19,214 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 512 bits.
+2025-06-01 02:48:19,214 - INFO - Payload length 512 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:48:19,214 - INFO - AES payload (512 bits) encoded to 896 Hamming bits.
+2025-06-01 02:48:19,214 - INFO - Recovered payload bit length: 512
+2025-06-01 02:48:19,297 - INFO - Message decrypted with AES-256, length: 24 bytes
+2025-06-01 02:48:19,297 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:48:19,380 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:19,381 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 384 bits.
+2025-06-01 02:48:19,381 - INFO - Payload length 384 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:48:19,381 - INFO - AES payload (384 bits) encoded to 672 Hamming bits.
+2025-06-01 02:48:19,381 - INFO - Recovered payload bit length: 384
+2025-06-01 02:48:19,464 - INFO - Message decrypted with AES-256, length: 4 bytes
+2025-06-01 02:48:19,464 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:48:19,548 - INFO - Message encrypted with AES-256, length: 832 bytes (excluding salt and IV)
+2025-06-01 02:48:19,549 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 6912 bits.
+2025-06-01 02:48:19,549 - INFO - Payload length 6912 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:48:19,551 - INFO - AES payload (6912 bits) encoded to 12096 Hamming bits.
+2025-06-01 02:48:19,553 - INFO - Recovered payload bit length: 6912
+2025-06-01 02:48:19,637 - INFO - Message decrypted with AES-256, length: 824 bytes
+2025-06-01 02:48:19,637 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:48:19,720 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:19,721 - INFO - Recovered payload bit length: 512
+2025-06-01 02:48:19,804 - INFO - Message decrypted with AES-256, length: 18 bytes
+2025-06-01 02:48:40,487 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:40,657 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:40,740 - INFO - Message decrypted with AES-256, length: 11 bytes
+2025-06-01 02:48:40,825 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:40,909 - INFO - Message decrypted with AES-256, length: 0 bytes
+2025-06-01 02:48:40,993 - INFO - Message encrypted with AES-256, length: 1376 bytes (excluding salt and IV)
+2025-06-01 02:48:41,077 - INFO - Message decrypted with AES-256, length: 1360 bytes
+2025-06-01 02:48:41,161 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:41,245 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:41,329 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:48:41,412 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:48:42,164 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:42,164 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 512 bits.
+2025-06-01 02:48:42,164 - INFO - Payload length 512 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:48:42,165 - INFO - AES payload (512 bits) encoded to 896 Hamming bits.
+2025-06-01 02:48:42,165 - INFO - Recovered payload bit length: 512
+2025-06-01 02:48:42,249 - INFO - Message decrypted with AES-256, length: 24 bytes
+2025-06-01 02:48:42,249 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:48:42,332 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:48:42,333 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 384 bits.
+2025-06-01 02:48:42,333 - INFO - Payload length 384 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:48:42,333 - INFO - AES payload (384 bits) encoded to 672 Hamming bits.
+2025-06-01 02:48:42,333 - INFO - Recovered payload bit length: 384
+2025-06-01 02:48:42,416 - INFO - Message decrypted with AES-256, length: 4 bytes
+2025-06-01 02:48:42,416 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:48:42,500 - INFO - Message encrypted with AES-256, length: 832 bytes (excluding salt and IV)
+2025-06-01 02:48:42,502 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 6912 bits.
+2025-06-01 02:48:42,502 - INFO - Payload length 6912 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:48:42,503 - INFO - AES payload (6912 bits) encoded to 12096 Hamming bits.
+2025-06-01 02:48:42,505 - INFO - Recovered payload bit length: 6912
+2025-06-01 02:48:42,590 - INFO - Message decrypted with AES-256, length: 824 bytes
+2025-06-01 02:48:42,590 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:48:42,674 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:48:42,674 - INFO - Recovered payload bit length: 512
+2025-06-01 02:48:42,758 - INFO - Message decrypted with AES-256, length: 18 bytes
+2025-06-01 02:49:54,646 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:49:54,827 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:49:54,911 - INFO - Message decrypted with AES-256, length: 11 bytes
+2025-06-01 02:49:55,008 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:49:55,091 - INFO - Message decrypted with AES-256, length: 0 bytes
+2025-06-01 02:49:55,189 - INFO - Message encrypted with AES-256, length: 1376 bytes (excluding salt and IV)
+2025-06-01 02:49:55,273 - INFO - Message decrypted with AES-256, length: 1360 bytes
+2025-06-01 02:49:55,370 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:49:55,454 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:49:55,537 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:49:55,620 - INFO - Message decrypted with AES-256, length: 27 bytes
+2025-06-01 02:49:56,383 - INFO - Image loaded: 128x128, blocks: 16x16
+2025-06-01 02:49:56,403 - INFO - DCT applied to 256 blocks per channel for 3 channels.
+2025-06-01 02:49:56,403 - INFO - DCT computed for 256 blocks per channel
+2025-06-01 02:49:56,420 - INFO - Coefficient pool size: 37632
+2025-06-01 02:49:56,503 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:49:56,503 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 512 bits.
+2025-06-01 02:49:56,503 - INFO - Payload length 512 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:49:56,503 - INFO - AES payload (512 bits) encoded to 896 Hamming bits.
+2025-06-01 02:49:56,504 - INFO - Total Hamming-encoded bits to embed: 924. Payload bit length (L): 512.
+2025-06-01 02:49:56,526 - INFO - Embedding all bits - Bit 0: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:56,543 - INFO - Embedding all bits - Bit 100: value 1 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:56,560 - INFO - Embedding all bits - Bit 200: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:56,576 - INFO - Embedding all bits - Bit 300: value 0 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:56,592 - INFO - Embedding all bits - Bit 400: value 0 with adaptive_alpha up to 0.5097, K=50
+2025-06-01 02:49:56,608 - INFO - Embedding all bits - Bit 500: value 1 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:56,625 - INFO - Embedding all bits - Bit 600: value 1 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:56,641 - INFO - Embedding all bits - Bit 700: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:56,657 - INFO - Embedding all bits - Bit 800: value 0 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:56,673 - INFO - Embedding all bits - Bit 900: value 1 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:56,677 - INFO - Embedding all bits - Bit 923: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:56,680 - INFO - IDCT applied and channels reconstructed for 3 channels.
+2025-06-01 02:49:56,681 - INFO - Image saved to test_images_temp_integrations/output.png
+2025-06-01 02:49:56,683 - INFO - Image loaded: 128x128, blocks: 16x16
+2025-06-01 02:49:56,686 - INFO - DCT applied to 256 blocks per channel for 3 channels.
+2025-06-01 02:49:56,686 - INFO - DCT computed for 256 blocks per channel for extraction
+2025-06-01 02:49:56,692 - INFO - Coefficient pool size: 37632
+2025-06-01 02:49:56,692 - INFO - Extracting length (attempt 1, K=50) - Bit 0: extracted value 0, correlation -0.5459, K=50
+2025-06-01 02:49:56,695 - INFO - Extracting length (attempt 1, K=50) - Bit 27: extracted value 0, correlation -0.4194, K=50
+2025-06-01 02:49:56,695 - INFO - Extracted payload bit length (from header): 512
+2025-06-01 02:49:56,696 - INFO - Expecting 896 Hamming-encoded bits for the payload (derived from L=512).
+2025-06-01 02:49:56,696 - INFO - Extracting payload (attempt 1, K=50) - Bit 28: extracted value 1, correlation 0.4383, K=50
+2025-06-01 02:49:56,707 - INFO - Extracting payload (attempt 1, K=50) - Bit 128: extracted value 1, correlation 0.4231, K=50
+2025-06-01 02:49:56,718 - INFO - Extracting payload (attempt 1, K=50) - Bit 228: extracted value 0, correlation -0.5179, K=50
+2025-06-01 02:49:56,728 - INFO - Extracting payload (attempt 1, K=50) - Bit 328: extracted value 1, correlation 0.6460, K=50
+2025-06-01 02:49:56,739 - INFO - Extracting payload (attempt 1, K=50) - Bit 428: extracted value 0, correlation -0.3985, K=50
+2025-06-01 02:49:56,750 - INFO - Extracting payload (attempt 1, K=50) - Bit 528: extracted value 1, correlation 0.6142, K=50
+2025-06-01 02:49:56,761 - INFO - Extracting payload (attempt 1, K=50) - Bit 628: extracted value 1, correlation 0.4050, K=50
+2025-06-01 02:49:56,771 - INFO - Extracting payload (attempt 1, K=50) - Bit 728: extracted value 1, correlation 0.4847, K=50
+2025-06-01 02:49:56,782 - INFO - Extracting payload (attempt 1, K=50) - Bit 828: extracted value 1, correlation 0.5099, K=50
+2025-06-01 02:49:56,792 - INFO - Extracting payload (attempt 1, K=50) - Bit 923: extracted value 0, correlation -0.5147, K=50
+2025-06-01 02:49:56,793 - INFO - Extracted 896 raw bits for payload in attempt 1.
+2025-06-01 02:49:56,793 - INFO - Recovered payload bit length: 512
+2025-06-01 02:49:56,876 - INFO - Message decrypted with AES-256, length: 29 bytes
+2025-06-01 02:49:56,877 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:49:56,892 - INFO - Image loaded: 128x128, blocks: 16x16
+2025-06-01 02:49:56,911 - INFO - DCT applied to 256 blocks per channel for 3 channels.
+2025-06-01 02:49:56,911 - INFO - DCT computed for 256 blocks per channel
+2025-06-01 02:49:56,916 - INFO - Coefficient pool size: 37632
+2025-06-01 02:49:56,999 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:49:56,999 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 512 bits.
+2025-06-01 02:49:56,999 - INFO - Payload length 512 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:49:57,000 - INFO - AES payload (512 bits) encoded to 896 Hamming bits.
+2025-06-01 02:49:57,000 - INFO - Total Hamming-encoded bits to embed: 924. Payload bit length (L): 512.
+2025-06-01 02:49:57,000 - INFO - Embedding all bits - Bit 0: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,017 - INFO - Embedding all bits - Bit 100: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,033 - INFO - Embedding all bits - Bit 200: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,049 - INFO - Embedding all bits - Bit 300: value 1 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,065 - INFO - Embedding all bits - Bit 400: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,081 - INFO - Embedding all bits - Bit 500: value 1 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:57,097 - INFO - Embedding all bits - Bit 600: value 1 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:57,113 - INFO - Embedding all bits - Bit 700: value 0 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,129 - INFO - Embedding all bits - Bit 800: value 1 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,145 - INFO - Embedding all bits - Bit 900: value 1 with adaptive_alpha up to 0.5052, K=50
+2025-06-01 02:49:57,149 - INFO - Embedding all bits - Bit 923: value 1 with adaptive_alpha up to 0.5105, K=50
+2025-06-01 02:49:57,151 - INFO - IDCT applied and channels reconstructed for 3 channels.
+2025-06-01 02:49:57,153 - INFO - Image saved to test_images_temp_integrations/output.png
+2025-06-01 02:49:57,155 - INFO - Image loaded: 128x128, blocks: 16x16
+2025-06-01 02:49:57,157 - INFO - DCT applied to 256 blocks per channel for 3 channels.
+2025-06-01 02:49:57,158 - INFO - DCT computed for 256 blocks per channel for extraction
+2025-06-01 02:49:57,162 - INFO - Coefficient pool size: 37632
+2025-06-01 02:49:57,163 - INFO - Extracting length (attempt 1, K=50) - Bit 0: extracted value 1, correlation 0.2108, K=50
+2025-06-01 02:49:57,166 - INFO - Extracting length (attempt 1, K=50) - Bit 27: extracted value 1, correlation 0.0838, K=50
+2025-06-01 02:49:57,166 - INFO - Extracted payload bit length (from header): 62995
+2025-06-01 02:49:57,166 - WARNING - Invalid L_payload_bits_from_header: 62995. Not in range (0, 8192] or not multiple of 128.
+2025-06-01 02:49:57,166 - INFO - Attempt 1 (length validation) failed, adjusting alpha to 0.2, K to 100
+2025-06-01 02:49:57,167 - INFO - Extracting length (attempt 2, K=100) - Bit 0: extracted value 1, correlation 0.1488, K=100
+2025-06-01 02:49:57,172 - INFO - Extracting length (attempt 2, K=100) - Bit 27: extracted value 1, correlation 0.0862, K=100
+2025-06-01 02:49:57,172 - INFO - Extracted payload bit length (from header): 18109
+2025-06-01 02:49:57,172 - WARNING - Invalid L_payload_bits_from_header: 18109. Not in range (0, 8192] or not multiple of 128.
+2025-06-01 02:49:57,172 - INFO - Attempt 2 (length validation) failed, adjusting alpha to 0.4, K to 200
+2025-06-01 02:49:57,173 - INFO - Extracting length (attempt 3, K=200) - Bit 0: extracted value 0, correlation -0.0110, K=200
+2025-06-01 02:49:57,183 - INFO - Extracting length (attempt 3, K=200) - Bit 27: extracted value 1, correlation 0.0799, K=200
+2025-06-01 02:49:57,183 - INFO - Extracted payload bit length (from header): 10595
+2025-06-01 02:49:57,183 - WARNING - Invalid L_payload_bits_from_header: 10595. Not in range (0, 8192] or not multiple of 128.
+2025-06-01 02:49:57,183 - INFO - Attempt 3 (length validation) failed, adjusting alpha to 0.8, K to 400
+2025-06-01 02:49:57,185 - INFO - Extracting length (attempt 4, K=400) - Bit 0: extracted value 1, correlation 0.0405, K=400
+2025-06-01 02:49:57,205 - INFO - Extracting length (attempt 4, K=400) - Bit 27: extracted value 0, correlation -0.0154, K=400
+2025-06-01 02:49:57,206 - INFO - Extracted payload bit length (from header): 6848
+2025-06-01 02:49:57,206 - WARNING - Invalid L_payload_bits_from_header: 6848. Not in range (0, 8192] or not multiple of 128.
+2025-06-01 02:49:57,206 - INFO - Attempt 4 (length validation) failed, adjusting alpha to 1.0, K to 800
+2025-06-01 02:49:57,207 - INFO - Extracting length (attempt 5, K=800) - Bit 0: extracted value 0, correlation -0.0051, K=800
+2025-06-01 02:49:57,247 - INFO - Extracting length (attempt 5, K=800) - Bit 27: extracted value 0, correlation -0.0402, K=800
+2025-06-01 02:49:57,247 - INFO - Extracted payload bit length (from header): 23912
+2025-06-01 02:49:57,247 - WARNING - Invalid L_payload_bits_from_header: 23912. Not in range (0, 8192] or not multiple of 128.
+2025-06-01 02:49:57,248 - INFO - Attempt 5 (length validation) failed, adjusting alpha to 1.0, K to 1600
+2025-06-01 02:49:57,263 - INFO - Image loaded: 128x128, blocks: 16x16
+2025-06-01 02:49:57,542 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:49:57,542 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 512 bits.
+2025-06-01 02:49:57,542 - INFO - Payload length 512 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:49:57,542 - INFO - AES payload (512 bits) encoded to 896 Hamming bits.
+2025-06-01 02:49:57,543 - INFO - Recovered payload bit length: 512
+2025-06-01 02:49:57,625 - INFO - Message decrypted with AES-256, length: 24 bytes
+2025-06-01 02:49:57,626 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:49:57,724 - INFO - Message encrypted with AES-256, length: 16 bytes (excluding salt and IV)
+2025-06-01 02:49:57,724 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 384 bits.
+2025-06-01 02:49:57,724 - INFO - Payload length 384 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:49:57,724 - INFO - AES payload (384 bits) encoded to 672 Hamming bits.
+2025-06-01 02:49:57,724 - INFO - Recovered payload bit length: 384
+2025-06-01 02:49:57,808 - INFO - Message decrypted with AES-256, length: 4 bytes
+2025-06-01 02:49:57,808 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:49:57,906 - INFO - Message encrypted with AES-256, length: 832 bytes (excluding salt and IV)
+2025-06-01 02:49:57,908 - INFO - AES encrypted payload (salt+iv+ciphertext) converted to 6912 bits.
+2025-06-01 02:49:57,908 - INFO - Payload length 6912 (16 bits) encoded to 28 Hamming bits for header.
+2025-06-01 02:49:57,909 - INFO - AES payload (6912 bits) encoded to 12096 Hamming bits.
+2025-06-01 02:49:57,911 - INFO - Recovered payload bit length: 6912
+2025-06-01 02:49:57,997 - INFO - Message decrypted with AES-256, length: 824 bytes
+2025-06-01 02:49:57,997 - INFO - CRC verified successfully during recovery.
+2025-06-01 02:49:58,095 - INFO - Message encrypted with AES-256, length: 32 bytes (excluding salt and IV)
+2025-06-01 02:49:58,095 - INFO - Recovered payload bit length: 512
+2025-06-01 02:49:58,179 - INFO - Message decrypted with AES-256, length: 18 bytes
