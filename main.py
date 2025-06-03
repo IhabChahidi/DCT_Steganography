@@ -389,19 +389,23 @@ def extract(image_path, key, K, preprocess=False):
 
         if overall_variance > variance_threshold_for_skipping_preprocess:
             logging.info("Proceeding with pre-processing operations (blur and CLAHE).")
-            # Gaussian Blur
-            img_processed = cv2.GaussianBlur(img, (3, 3), 1.0) # Sigma updated to 1.0
-            logging.info("Pre-processing: Applied Gaussian blur (kernel=3x3, sigma=1.0).")
 
-            # Contrast Normalization (CLAHE)
-            lab = cv2.cvtColor(img_processed, cv2.COLOR_BGR2LAB)
+            # Gaussian Blur
+            sigma_blur = 0.7
+            img_blurred = cv2.GaussianBlur(img, (3, 3), sigma_blur)
+            logging.info(f"Pre-processing: Applied Gaussian blur (kernel=3x3, sigma={sigma_blur}).")
+
+            # CLAHE Contrast Normalization
+            clip_limit_clahe = 1.5
+            lab = cv2.cvtColor(img_blurred, cv2.COLOR_BGR2LAB) # Use img_blurred here
             l_channel, a_channel, b_channel = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            clahe = cv2.createCLAHE(clipLimit=clip_limit_clahe, tileGridSize=(8, 8))
             cl = clahe.apply(l_channel)
             limg = cv2.merge((cl, a_channel, b_channel))
-            img_final_processed = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-            logging.info("Pre-processing: Applied CLAHE contrast normalization (clipLimit=2.0, tileGridSize=(8,8)).")
-            img = img_final_processed
+            img_processed_final = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+            logging.info(f"Pre-processing: Applied CLAHE contrast normalization (clipLimit={clip_limit_clahe}, tileGridSize=(8,8)).")
+
+            img = img_processed_final # Update img with the processed version
         else:
             logging.info(f"Pre-processing (blur and CLAHE) skipped: Image variance ({overall_variance:.2f}) is below/equal to threshold. Original image will be used.")
             # img remains the original image
