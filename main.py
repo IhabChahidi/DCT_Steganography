@@ -215,11 +215,17 @@ def _extract_message_for_length(
     N_pool_size,
     pool_details, # List of (bi, bj, u, v) for averaged blocks
     num_blocks_j_img,
-    averaged_dct_coefficients, # The actual averaged DCT blocks data
-    averaged_block_variances_input, # Averaged variances for adaptive component
-    # channel_weights_map, # Not used for calculation due to pre-averaging
-    passed_initial_alpha_estimate # Alpha estimate from length phase or default
+    raw_dct_blocks_input, # Renamed from averaged_dct_coefficients
+    raw_block_variances_input, # Renamed from averaged_block_variances_input
+    active_channel_weights, # New parameter: list e.g. [wb, wg, wr]
+    passed_initial_alpha_estimate # Alpha estimate from length phase or default, used for adaptive alpha and confidence scaling
 ):
+    logging.info(f"Message Extraction Helper for L={target_L} using channel weights: B={active_channel_weights[0]:.3f}, G={active_channel_weights[1]:.3f}, R={active_channel_weights[2]:.3f}")
+
+    # Define overall_estimated_alpha for confidence scaling, ensuring it's not too small
+    overall_estimated_alpha = max(0.01, passed_initial_alpha_estimate)
+    logging.info(f"Confidence scaling for L={target_L} will use overall_estimated_alpha: {overall_estimated_alpha:.3f} (derived from passed_initial_alpha_estimate: {passed_initial_alpha_estimate:.3f})")
+
     max_avg_bit_confidence_for_this_L_call = 0.0
     num_non_ascii_replacements_final = 0
     final_K_for_this_L_call = initial_K_for_msg # Store the K that led to success/failure for this L
@@ -260,92 +266,94 @@ def _extract_message_for_length(
                 # This would lead to avg_normalized_signal_msg = 0, bit = 0.
 
             for k_loop_idx_msg, pool_idx_msg in enumerate(idx_list_msg):
-                bi_pool, bj_pool, u, v = pool_details[pool_idx_msg]
+                bi_pool, bj_pool, c_pool, u, v = pool_details[pool_idx_msg] # Now includes c_pool
                 block_linear_idx_msg = bi_pool * num_blocks_j_img + bj_pool
 
-                dct_coeff_val_msg = averaged_dct_coefficients[block_linear_idx_msg][u, v]
-                variance_msg = averaged_block_variances_input[block_linear_idx_msg]
+                dct_coeff_val_msg = raw_dct_blocks_input[c_pool][block_linear_idx_msg][u, v]
+                variance_msg = raw_block_variances_input[c_pool][block_linear_idx_msg]
 
                 # Adaptive component calculation (consistent with length part)
                 adaptive_component_msg = max((1 + variance_msg / 1000.0), 0.01) # From original code
 
-                sum_corr_numerator_msg += dct_coeff_val_msg * p_msg[k_loop_idx_msg]
+                sum_corr_numerator_msg += dct_coeff_val_msg * p_msg[k_loop_idx_msg] * active_channel_weights[c_pool]
                 sum_adaptive_denominator_msg += adaptive_component_msg
 
             # Normalize the signal sum by the sum of adaptive components
             # This calculation is for the overall confidence score, using all current_K_msg coefficients
             avg_normalized_signal_msg = sum_corr_numerator_msg / sum_adaptive_denominator_msg if sum_adaptive_denominator_msg > 1e-9 else 0.0
 
-            # Majority Voting for bit extraction
-            votes = []
+            # Majority Voting for bit extraction with Confidence Weighting
+            votes_with_confidence = [] # Stores tuples of (vote_bit, vote_confidence)
             num_sub_samples = 3
-            # Ensure K_sub_sample is at least 1 and does not exceed the number of available coefficients in idx_list_msg
             K_sub_sample_base = current_K_msg // 2
 
             for sub_sample_idx in range(num_sub_samples):
-                # Seed for sub-sample randomness (optional, but good for reproducibility if needed)
-                # random.seed(key_param + i_msg_bit_loop + sub_sample_idx + 1000) # Ensure different seed
-
-                # Determine K for this sub-sample
-                # If current_K_msg is small, use all of it. Otherwise, use half.
-                # K_sub_sample = current_K_msg if current_K_msg < 10 else max(1, K_sub_sample_base)
-                # Ensure K_sub_sample does not exceed len(idx_list_msg) if idx_list_msg is small
                 actual_K_for_sub_sample = max(1, K_sub_sample_base)
-                if not idx_list_msg: # Should not happen if current_K_msg > 0 and N_pool_size > 0
+                if not idx_list_msg:
                     logging.warning(f"Bit {i_msg_bit_loop-28} (L={target_L}), SubSample {sub_sample_idx}: idx_list_msg is empty. Cannot vote.")
-                    votes.append(0) # Default vote or handle as error
+                    votes_with_confidence.append((0, 0.0)) # Default vote with zero confidence
                     continue
 
                 sub_sample_indices = random.sample(idx_list_msg, min(actual_K_for_sub_sample, len(idx_list_msg)))
 
                 sum_corr_sub_sample = 0.0
                 sum_adaptive_sub_sample = 0.0
-
-                # Use the p_msg generated for the main sample, but select corresponding elements
-                # This requires p_msg to be generated based on N_pool_size or current_K_msg,
-                # and then sub-sampled p_values must align with sub_sample_indices.
-                # For simplicity, let's generate p_sub for each sub_sample directly.
-                # p_sub = [random.choice([1,-1]) for _ in range(len(sub_sample_indices))] # This changes pattern generation per sub-sample.
-                # The original p_msg is tied to idx_list_msg. We need to map sub_sample_indices back to their original p_msg values.
-
                 p_sub_mapped = []
+
                 for sub_idx_val in sub_sample_indices:
                     try:
                         original_pos_in_idx_list_msg = idx_list_msg.index(sub_idx_val)
                         p_sub_mapped.append(p_msg[original_pos_in_idx_list_msg])
                     except ValueError:
-                        # This should not happen if sub_sample_indices is a subset of idx_list_msg
-                        logging.error(f"Error mapping sub-sample index for p_val. Bit {i_msg_bit_loop-28}")
-                        # Fallback or skip this coefficient
+                        logging.error(f"Error mapping sub-sample index for p_val. Bit {i_msg_bit_loop-28}, SubSample {sub_sample_idx}")
                         continue
 
-                if not sub_sample_indices: # If K_sub_sample ended up being 0 or list empty
-                    logging.debug(f"Bit {i_msg_bit_loop-28} (L={target_L}), SubSample {sub_sample_idx}: sub_sample_indices is empty. Voting 0.")
-                    votes.append(0) # Default vote
+                if len(p_sub_mapped) != len(sub_sample_indices): # If any mapping error occurred
+                    logging.warning(f"Bit {i_msg_bit_loop-28} (L={target_L}), SubSample {sub_sample_idx}: p_val mapping issue. Cannot vote reliably.")
+                    votes_with_confidence.append((0, 0.0))
+                    continue
+
+                if not sub_sample_indices:
+                    logging.debug(f"Bit {i_msg_bit_loop-28} (L={target_L}), SubSample {sub_sample_idx}: sub_sample_indices is empty. Voting 0 with 0 confidence.")
+                    votes_with_confidence.append((0, 0.0))
                     continue
 
                 for k_sub_idx, pool_idx_sub_sample in enumerate(sub_sample_indices):
-                    # bi_pool, bj_pool, u, v = pool_details[pool_idx_sub_sample] # pool_idx_sub_sample is ALREADY the value from pool_details
-                    # The 'pool_idx_sub_sample' is an element from idx_list_msg, which are indices for 'pool_details'
-                    bi_pool, bj_pool, u, v = pool_details[pool_idx_sub_sample]
+                    bi_pool, bj_pool, c_pool_sub, u, v = pool_details[pool_idx_sub_sample]
                     block_linear_idx_sub_sample = bi_pool * num_blocks_j_img + bj_pool
 
-                    dct_coeff_val_sub = averaged_dct_coefficients[block_linear_idx_sub_sample][u, v]
-                    variance_sub = averaged_block_variances_input[block_linear_idx_sub_sample]
+                    dct_coeff_val_sub = raw_dct_blocks_input[c_pool_sub][block_linear_idx_sub_sample][u, v]
+                    variance_sub = raw_block_variances_input[c_pool_sub][block_linear_idx_sub_sample]
                     adaptive_component_sub = max((1 + variance_sub / 1000.0), 0.01)
 
-                    sum_corr_sub_sample += dct_coeff_val_sub * p_sub_mapped[k_sub_idx] # Use mapped p_val
+                    sum_corr_sub_sample += dct_coeff_val_sub * p_sub_mapped[k_sub_idx] * active_channel_weights[c_pool_sub]
                     sum_adaptive_sub_sample += adaptive_component_sub
 
                 avg_normalized_signal_sub_sample = sum_corr_sub_sample / sum_adaptive_sub_sample if sum_adaptive_sub_sample > 1e-9 else 0.0
-                votes.append(1 if avg_normalized_signal_sub_sample > 0.0 else 0)
+                current_vote_bit = 1 if avg_normalized_signal_sub_sample > 0.0 else 0
+                votes_with_confidence.append((current_vote_bit, avg_normalized_signal_sub_sample))
 
-            final_bit_value = 1 if sum(votes) > num_sub_samples / 2.0 else 0
-            logging.info(f"Bit {i_msg_bit_loop-28} (L={target_L}): Votes={votes}, SelectedBit={final_bit_value}")
+            # Confidence-Weighted Voting
+            total_weighted_sum = 0.0
+            for vote_bit, vote_confidence_signal in votes_with_confidence:
+                bipolar_vote = 1 if vote_bit == 1 else -1
+                total_weighted_sum += bipolar_vote * abs(vote_confidence_signal) # Weight by magnitude of confidence signal
+
+            final_bit_value = 1 if total_weighted_sum > 0.0 else 0
+            # Handle exact zero sum case (e.g. if all confidences are zero, or perfect tie with symmetrical confidences)
+            if total_weighted_sum == 0.0:
+                # Default to 0 or use a tie-breaking rule, e.g., first vote, or majority if confidences were equal.
+                # For simplicity, defaulting to 0.
+                final_bit_value = 0
+                logging.debug(f"Bit {i_msg_bit_loop-28} (L={target_L}): Weighted sum is zero, defaulting bit to 0.")
+
+            formatted_votes_conf = [f"({v},{c:.3f})" for v, c in votes_with_confidence]
+            logging.info(f"Bit {i_msg_bit_loop-28} (L={target_L}): VotesWithConf=[{', '.join(formatted_votes_conf)}], WeightedSum={total_weighted_sum:.3f}, SelectedBit={final_bit_value}")
             msg_encoded_extracted.append(final_bit_value)
 
-            # Calculate confidence for this bit (0 to 1 range) - using the original avg_normalized_signal_msg from all current_K_msg coefficients
-            current_bit_confidence = min(abs(avg_normalized_signal_msg), 1.5) / 1.5 # Max confidence capped at 1.5 signal strength
+            # Calculate confidence for this bit (0 to 1 range)
+            # avg_normalized_signal_msg is an estimate of the actual alpha used during embedding for this bit's extraction (after channel weighting)
+            current_bit_confidence = min(1.0, abs(avg_normalized_signal_msg) / overall_estimated_alpha)
             bit_confidences_this_attempt.append(current_bit_confidence)
 
         avg_confidence_this_attempt = sum(bit_confidences_this_attempt) / len(bit_confidences_this_attempt) if bit_confidences_this_attempt else 0.0
@@ -576,10 +584,10 @@ def extract(image_path, key, K, preprocess=False):
 
     logging.info(f"Averaged DCTs and variances computed for {len(averaged_dct_blocks)} blocks using equal channel contribution.")
 
-    # Define coefficient pool using averaged blocks
+    # Define coefficient pool using per-channel blocks
     selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)]
-    pool = [(bi, bj, u, v) for bi in range(num_blocks_i)
-            for bj in range(num_blocks_j) for (u, v) in selected_uv]
+    pool = [(bi, bj, c, u, v) for bi in range(num_blocks_i) # Add channel index c
+            for bj in range(num_blocks_j) for c in range(3) for (u, v) in selected_uv]
     N = len(pool)
 
     if N == 0:
@@ -627,15 +635,20 @@ def extract(image_path, key, K, preprocess=False):
                  logging.debug(f"Length Bit {i}: Empty idx_list with K={current_K_len}, N={N}")
 
             for k_loop_idx, pool_idx in enumerate(idx_list):
-                bi_pool, bj_pool, u, v = pool[pool_idx]
+                bi_pool, bj_pool, c_pool, u, v = pool[pool_idx] # Now includes c_pool
                 block_linear_idx = bi_pool * num_blocks_j + bj_pool
-                dct_coeff_val = averaged_dct_blocks[block_linear_idx][u, v]
-                variance_val = averaged_block_variances[block_linear_idx]
-                # Adaptive component calculation (consistent with message part)
-                adaptive_component = max((1 + variance_val / 1000.0), 0.01) # Avoid zero or negative weight
 
-                sum_corr_numerator += dct_coeff_val * p_val[k_loop_idx]
-                sum_adaptive_denominator += adaptive_component
+                # Use per-channel data and apply channel weights
+                channel_key_map = ['B', 'G', 'R'] # B=0, G=1, R=2 due to cv2.split order
+                weight_for_channel = channel_weights[channel_key_map[c_pool]]
+
+                dct_coeff_val = raw_dct_blocks_per_channel[c_pool][block_linear_idx][u, v]
+                variance_val = block_variances_per_channel[c_pool][block_linear_idx]
+
+                adaptive_component = max((1 + variance_val / 1000.0), 0.01)
+
+                sum_corr_numerator += dct_coeff_val * p_val[k_loop_idx] * weight_for_channel
+                sum_adaptive_denominator += adaptive_component # Denominator is typically not weighted by channel strength directly
 
             avg_normalized_signal = sum_corr_numerator / sum_adaptive_denominator if sum_adaptive_denominator > 1e-9 else 0.0
             current_attempt_len_bit_signals.append(avg_normalized_signal) # Store for potential use
@@ -757,9 +770,12 @@ def extract(image_path, key, K, preprocess=False):
                 alpha_for_fallback = alpha_at_L_detection # Use Alpha from end of primary length attempts
                 logging.info(f"Fallback: Attempting message extraction with L_candidate={candidate_L}, K_init={k_for_fallback}, Alpha_init={alpha_for_fallback:.2f}, MaxAttempts={max_attempts_fallback}")
 
+                # Convert channel_weights dict to list [B, G, R] for helper function (consistent order)
+                channel_weights_list_fb = [channel_weights['B'], channel_weights['G'], channel_weights['R']]
                 fb_msg_data = _extract_message_for_length(
                     candidate_L, initial_K_arg, max_attempts_fallback, key, N, pool,
-                    num_blocks_j, averaged_dct_blocks, averaged_block_variances, alpha_for_fallback
+                    num_blocks_j, raw_dct_blocks_per_channel, block_variances_per_channel,
+                    channel_weights_list_fb, alpha_for_fallback
                 )
                 fb_msg, fb_conf, fb_repl, fb_k, fb_alpha = fb_msg_data
 
@@ -814,13 +830,16 @@ def extract(image_path, key, K, preprocess=False):
 
     if final_extracted_message is None: # If primary L was valid but message extraction hasn't happened yet (e.g. detection passed, now extract actual message)
         logging.info(f"Proceeding to message extraction with L={L_final}. Using K={initial_K_arg} (initial), AlphaEst={alpha_at_L_detection:.2f} (from L-phase) for message part.")
+        # Convert channel_weights dict to list [B, G, R] for the main call to helper (if primary L was successful)
+        channel_weights_list_main = [channel_weights['B'], channel_weights['G'], channel_weights['R']]
         extracted_msg_data = _extract_message_for_length(
             target_L=L_final,
             initial_K_for_msg=initial_K_arg,
             max_attempts_for_msg=max_attempts_len,
             key_param=key, N_pool_size=N, pool_details=pool, num_blocks_j_img=num_blocks_j,
-            averaged_dct_coefficients=averaged_dct_blocks,
-            averaged_block_variances_input=averaged_block_variances,
+            raw_dct_blocks_input=raw_dct_blocks_per_channel,         # Pass raw per-channel DCTs
+            raw_block_variances_input=block_variances_per_channel,  # Pass raw per-channel variances
+            active_channel_weights=channel_weights_list_main,        # Pass calculated channel weights
             passed_initial_alpha_estimate=alpha_at_L_detection
         )
         final_extracted_message, final_message_confidence_score, final_num_replacements, k_at_msg_extraction, alpha_at_msg_extraction = extracted_msg_data
