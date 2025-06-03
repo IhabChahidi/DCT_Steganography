@@ -256,6 +256,26 @@ def _extract_message_for_length(
         for i_msg_bit_loop in tqdm(range(28, 28 + M_bits_to_extract_msg), desc=desc_msg, leave=False):
             random.seed(key_param + i_msg_bit_loop) # Seed includes main key and bit index
             idx_list_msg = random.sample(range(N_pool_size), min(current_K_msg, N_pool_size))
+            # --- Start of Python code block for subtask point 3 ---
+            if idx_list_msg: # Check if list is not empty for safety
+                _selected_coeff_float_values = []
+                for _p_idx in idx_list_msg:
+                    _pool_item = pool_details[_p_idx]
+                    _bi, _bj, _c, _u, _v = _pool_item
+                    _block_idx = _bi * num_blocks_j_img + _bj
+                    _coeff = raw_dct_blocks_input[_c][_block_idx][_u, _v]
+                    _selected_coeff_float_values.append(_coeff)
+
+                if _selected_coeff_float_values: # If list was successfully populated
+                    _coeff_magnitudes = np.abs(np.array(_selected_coeff_float_values))
+                    _near_zero_count = np.sum(_coeff_magnitudes < 0.01)
+                    _avg_magnitude = np.mean(_coeff_magnitudes) # np.mean handles empty array by returning nan, but we check _selected_coeff_float_values first.
+                    logging.debug(f"Bit {i_msg_bit_loop-28} (L={target_L}, K={current_K_msg}): Selected {len(idx_list_msg)} coeffs stats - NearZeroCount: {_near_zero_count}, AvgAbsMag: {_avg_magnitude:.4f}")
+                else:
+                    logging.debug(f"Bit {i_msg_bit_loop-28} (L={target_L}, K={current_K_msg}): idx_list_msg was non-empty, but failed to populate coeffs for stats.")
+            else:
+                logging.debug(f"Bit {i_msg_bit_loop-28} (L={target_L}, K={current_K_msg}): idx_list_msg was empty, no coeff stats to log.")
+            # --- End of Python code block for subtask point 3 ---
             p_msg = [random.choice([1, -1]) for _ in range(len(idx_list_msg))]
 
             sum_corr_numerator_msg = 0.0 # sum(dct_coeff * pattern)
@@ -273,7 +293,7 @@ def _extract_message_for_length(
                 variance_msg = raw_block_variances_input[c_pool][block_linear_idx_msg]
 
                 # Adaptive component calculation (consistent with length part)
-                adaptive_component_msg = max((1 + variance_msg / 1000.0), 0.01) # From original code
+                adaptive_component_msg = max((1 + variance_msg / 1000.0), 0.05) # From original code
 
                 sum_corr_numerator_msg += dct_coeff_val_msg * p_msg[k_loop_idx_msg] * active_channel_weights[c_pool]
                 sum_adaptive_denominator_msg += adaptive_component_msg
@@ -324,7 +344,7 @@ def _extract_message_for_length(
 
                     dct_coeff_val_sub = raw_dct_blocks_input[c_pool_sub][block_linear_idx_sub_sample][u, v]
                     variance_sub = raw_block_variances_input[c_pool_sub][block_linear_idx_sub_sample]
-                    adaptive_component_sub = max((1 + variance_sub / 1000.0), 0.01)
+                    adaptive_component_sub = max((1 + variance_sub / 1000.0), 0.05)
 
                     sum_corr_sub_sample += dct_coeff_val_sub * p_sub_mapped[k_sub_idx] * active_channel_weights[c_pool_sub]
                     sum_adaptive_sub_sample += adaptive_component_sub
@@ -514,6 +534,9 @@ def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_lim
     else:
         logging.info("Pre-processing: Skipped (user flag not set).")
     actionable_error_message_parts.append(f"Pre-processed={preprocess_actually_applied}")
+    if preprocess_actually_applied:
+        actionable_error_message_parts.append(f"BlurSigmaUsed={blur_sigma:.2f}")
+        actionable_error_message_parts.append(f"CLAHELimitUsed={clahe_clip_limit:.2f}")
     
     # Pad image to multiple of 8 if necessary
     h, w, _ = img.shape
@@ -568,6 +591,61 @@ def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_lim
     logging.info(f"Calculated channel weights (for info, current averaging is equal): "
                  f"B={channel_weights['B']:.3f}, G={channel_weights['G']:.3f}, R={channel_weights['R']:.3f}")
 
+    # DCT Coefficient Sparsity Analysis (Task 9 Rec. 1)
+    # Note: selected_uv is defined later. For this analysis, we'll use a fixed range or ensure
+    # it's defined if this block were to be moved after selected_uv's main definition.
+    # Given current placement, a temporary or fixed selected_uv is needed here.
+    # The prompt specifies using (1,6) for temp_selected_uv_for_sparsity.
+    if raw_dct_blocks_per_channel: # Ensure variables are populated
+        sparsity_metrics_per_channel = []
+        # Using a fixed range as specified, similar to what selected_uv will become.
+        temp_selected_uv_for_sparsity = [(u, v) for u in range(1, 6) for v in range(1, 6)]
+
+        total_coeffs_count = 0
+        near_zero_coeffs_count = 0
+
+        for c_idx in range(len(raw_dct_blocks_per_channel)):
+            channel_coeffs_count = 0
+            channel_near_zero_coeffs = 0
+            if not raw_dct_blocks_per_channel[c_idx]: # Check if channel data exists
+                logging.warning(f"Sparsity: Channel {c_idx} has no DCT blocks.")
+                continue
+
+            for block_dct_coeffs in raw_dct_blocks_per_channel[c_idx]:
+                if block_dct_coeffs is None or not hasattr(block_dct_coeffs, 'shape'): # Additional check for block validity
+                    logging.warning(f"Sparsity: Invalid/empty DCT block encountered in channel {c_idx}.")
+                    continue
+                for u, v in temp_selected_uv_for_sparsity:
+                    if u < block_dct_coeffs.shape[0] and v < block_dct_coeffs.shape[1]:
+                        channel_coeffs_count += 1
+                        if abs(block_dct_coeffs[u, v]) < 0.01: # Threshold for "near-zero"
+                            channel_near_zero_coeffs += 1
+            total_coeffs_count += channel_coeffs_count
+            near_zero_coeffs_count += channel_near_zero_coeffs
+
+            if channel_coeffs_count > 0:
+                channel_sparsity = (channel_near_zero_coeffs / channel_coeffs_count) * 100
+                sparsity_metrics_per_channel.append(channel_sparsity)
+                logging.info(f"Channel {c_idx} DCT Coefficient Sparsity (selected_uv range (1,6)x(1,6)): {channel_sparsity:.2f}% near-zero")
+            else:
+                logging.info(f"Channel {c_idx} DCT Coefficient Sparsity: No coefficients processed.")
+
+
+        if total_coeffs_count > 0:
+            avg_sparsity = (near_zero_coeffs_count / total_coeffs_count) * 100
+            logging.info(f"Overall Average DCT Coefficient Sparsity (selected_uv range (1,6)x(1,6)): {avg_sparsity:.2f}% near-zero")
+            if avg_sparsity > 50: # Threshold for warning
+                logging.warning(f"High Overall DCT coefficient sparsity ({avg_sparsity:.2f}%) detected in selected_uv range; heavy JPEG compression may affect extraction.")
+                actionable_error_message_parts.append(f"HighCoeffSparsityWarn={avg_sparsity:.2f}%")
+            else:
+                actionable_error_message_parts.append(f"CoeffSparsity={avg_sparsity:.2f}%")
+        else:
+            logging.warning("Could not calculate DCT coefficient sparsity (no coefficients found or processed).")
+            actionable_error_message_parts.append("CoeffSparsity=Unavailable")
+    else:
+        logging.warning("Sparsity analysis skipped: raw_dct_blocks_per_channel is empty.")
+
+
     # Existing Averaging Logic (remains unchanged as per subtask)
     averaged_dct_blocks = []
     averaged_block_variances = []
@@ -585,7 +663,7 @@ def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_lim
     logging.info(f"Averaged DCTs and variances computed for {len(averaged_dct_blocks)} blocks using equal channel contribution.")
 
     # Define coefficient pool using per-channel blocks
-    selected_uv = [(u, v) for u in range(1, 8) for v in range(1, 8)]
+    selected_uv = [(u, v) for u in range(1, 6) for v in range(1, 6)]
     pool = [(bi, bj, c, u, v) for bi in range(num_blocks_i) # Add channel index c
             for bj in range(num_blocks_j) for c in range(3) for (u, v) in selected_uv]
     N = len(pool)
@@ -601,7 +679,7 @@ def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_lim
     L_final = -1
     # Parameters for the primary length extraction loop
     current_K_len = initial_K_arg
-    max_attempts_len = 15
+    max_attempts_len = 21
     attempt_len = 0
 
     current_alpha_estimate_len = 1.0
@@ -708,9 +786,13 @@ def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_lim
     # --- Watermark Detection Logic (Primary Attempt) ---
     if L_final != -1 and len(len_bits_correlations_for_detection) == 28:
         avg_abs_correlation_len_bits = np.mean(np.abs(np.array(len_bits_correlations_for_detection)))
-        detection_threshold_value = 0.1 * alpha_at_L_detection
+        detection_threshold_value = 0.075 * alpha_at_L_detection
         actionable_error_message_parts.append(f"AvgLenCorrPri={avg_abs_correlation_len_bits:.4f}")
         actionable_error_message_parts.append(f"DetectThreshPri={detection_threshold_value:.4f}")
+        # Debug log for per-bit length correlations
+        if len_bits_correlations_for_detection: # Ensure it's not empty before trying to format
+            correlation_values_str = ", ".join([f"{val:.4f}" for val in len_bits_correlations_for_detection])
+            logging.debug(f"Per-bit length correlations (L={L_final}, K={k_at_L_detection}, AlphaEst={alpha_at_L_detection:.2f}): [{correlation_values_str}]")
         logging.info(f"Watermark detection (Primary L): Avg Abs Correlation: {avg_abs_correlation_len_bits:.4f}, Threshold: {detection_threshold_value:.4f}, AlphaEst: {alpha_at_L_detection:.2f}, K: {k_at_L_detection}")
         if avg_abs_correlation_len_bits < detection_threshold_value:
             logging.error(f"Primary L={L_final} failed watermark detection. Avg correlation {avg_abs_correlation_len_bits:.4f} < threshold {detection_threshold_value:.4f}. Estimated alpha: {alpha_at_L_detection:.2f}, K for length: {k_at_L_detection}.")
@@ -756,14 +838,14 @@ def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_lim
 
         # Filter and sort, limit count
         valid_fallback_candidates = sorted([l for l in list(fallback_L_candidates) if 128 <= l <= 2048 and l % 128 == 0])
-        limited_fallback_candidates = valid_fallback_candidates[:5] # Limit to around 5
+        limited_fallback_candidates = valid_fallback_candidates[:7] # Limit to around 7
         actionable_error_message_parts.append(f"FallbackCands={limited_fallback_candidates}")
 
         if not limited_fallback_candidates:
             logging.warning("No suitable fallback L candidates generated.")
         else:
             logging.info(f"Generated fallback L candidates: {limited_fallback_candidates}")
-            max_attempts_fallback = max(3, max_attempts_len // 2) # e.g. 7 if max_attempts_len is 15
+            max_attempts_fallback = max(5, (max_attempts_len * 2) // 3) # e.g. 14 if max_attempts_len is 21
 
             for candidate_L in limited_fallback_candidates:
                 k_for_fallback = k_at_L_detection # Use K from end of primary length attempts
