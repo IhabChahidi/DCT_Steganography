@@ -135,6 +135,8 @@ def embed(image_path, message, output_path, key, alpha, K):
     encrypted_bytes = aes_encrypt(message_with_crc, key)
     msg_bits = [int(b) for byte in encrypted_bytes for b in format(byte, '08b')]
     L = len(msg_bits)  # This now reflects the actual number of bits after padding
+    # AES IV is 16 bytes = 128 bits. encrypted_bytes = IV + actual_encrypted_data. So msg_bits includes IV bits.
+    logging.info(f"AES IV is 128 bits. Encrypted message (with padding) is {L - 128} bits. Total L = {L} bits.")
     logging.info(f"Message encrypted and converted to {L} bits")
 
     # Encode length (16 bits) with Hamming
@@ -211,15 +213,26 @@ def extract(image_path, key, K):
 
     # Split into channels
     b, g, r = cv2.split(img)
+    
+    num_blocks_i, num_blocks_j = h // 8, w // 8
+
+    # Calculate Block Variances
+    block_variances_channels = [[] for _ in range(3)]
+    for c_idx, channel_data in enumerate([b, g, r]):
+        for bi_var in range(num_blocks_i):
+            for bj_var in range(num_blocks_j):
+                block_var = channel_data[bi_var*8:(bi_var+1)*8, bj_var*8:(bj_var+1)*8]
+                variance = compute_block_variance(block_var)
+                block_variances_channels[c_idx].append(variance)
+    logging.info(f"Block variances computed for {len(block_variances_channels[0])} blocks per channel.")
 
     # Divide into 8x8 blocks and apply DCT for each channel
-    num_blocks_i, num_blocks_j = h // 8, w // 8
     dct_blocks = [[] for _ in range(3)]
-    for bi in range(num_blocks_i):
-        for bj in range(num_blocks_j):
-            for c, channel in enumerate([b, g, r]):
-                block = channel[bi*8:(bi+1)*8, bj*8:(bj+1)*8]
-                dct_blocks[c].append(cv2.dct(block.astype(np.float32)))
+    for bi_dct in range(num_blocks_i):
+        for bj_dct in range(num_blocks_j):
+            for c_dct, channel_data_dct in enumerate([b, g, r]): # Use different iter var names
+                block_dct = channel_data_dct[bi_dct*8:(bi_dct+1)*8, bj_dct*8:(bj_dct+1)*8]
+                dct_blocks[c_dct].append(cv2.dct(block_dct.astype(np.float32)))
     logging.info(f"DCT computed for {len(dct_blocks[0])} blocks per channel")
 
     # Define coefficient pool
@@ -231,29 +244,55 @@ def extract(image_path, key, K):
 
     # Extract length (28 encoded bits for 16-bit length)
     len_encoded_extracted = []
-    # max_alpha = 1.0 # REMOVED
-    # current_alpha = 0.1 # REMOVED
-    current_K = K
-    max_attempts = 5
+    current_K = K # K is the initial value from args
+    max_attempts = 15 # Increased max_attempts for more alpha/K adjustments
     attempt = 0
 
+    # Initialize Adaptive Parameters for length extraction
+    current_alpha_estimate = 1.0
+    max_alpha_estimate = 5.0
+    min_alpha_estimate = 0.1
+    alpha_adjustment_factor = 1.5
+    change_alpha_direction_threshold = 2
+    alpha_increases_done = 0
+    alpha_decreases_done = 0
+    alpha_adjust_direction = 1 # 1 for increase, -1 for decrease
+
+    logging.info(f"Starting length extraction. Initial K={current_K}, Initial AlphaEst={current_alpha_estimate:.2f}")
     while attempt < max_attempts:
         len_encoded_extracted = []
-        for i in tqdm(range(28), desc=f"Extracting length (attempt {attempt+1})"):
+        for i in tqdm(range(28), desc=f"Extracting length (attempt {attempt+1}/{max_attempts}, K={current_K}, alpha_est={current_alpha_estimate:.2f})"):
             random.seed(key + i)
             idx_list = random.sample(range(N), min(current_K, N))
             p = [random.choice([1, -1]) for _ in range(len(idx_list))]
-            # Average across channels for noise resilience
-            sum_corr = 0
-            count = 0
-            for k, idx in enumerate(idx_list):
-                bi, bj, c, u, v = pool[idx]
-                sum_corr += dct_blocks[c][bi * num_blocks_j + bj][u, v] * p[k]
-                count += 1
-            c = sum_corr / count if count > 0 else 0
-            bit = 1 if c > 0 else 0
+            
+            sum_weighted_signal_numerator = 0.0
+            sum_weights_denominator = 0.0
+            # num_coeffs_processed = 0 # No longer directly used for averaging, but can be kept for other K metrics if needed.
+                                     # For now, removing to simplify, as K itself is logged.
+            for k_loop_idx, pool_idx in enumerate(idx_list):
+                bi_pool, bj_pool, c_channel_idx, u, v = pool[pool_idx]
+                block_linear_idx = bi_pool * num_blocks_j + bj_pool
+                variance = block_variances_channels[c_channel_idx][block_linear_idx]
+
+                if variance < 1e-3: # Skip coefficients from very low-variance blocks
+                    logging.debug(f"Bit {i}: Skipping coefficient from block (bi={bi_pool}, bj={bj_pool}, c={c_channel_idx}) due to very low variance: {variance:.4f}")
+                    continue
+                
+                adaptive_component = (1 + variance / 1000.0)
+                adaptive_component = max(adaptive_component, 0.01)
+
+                dct_coeff_val = dct_blocks[c_channel_idx][block_linear_idx][u, v]
+                pattern_val = p[k_loop_idx]
+                
+                sum_weighted_signal_numerator += dct_coeff_val * pattern_val
+                sum_weights_denominator += adaptive_component
+                # num_coeffs_processed += 1 # If re-added for other metrics
+            
+            avg_normalized_signal = sum_weighted_signal_numerator / sum_weights_denominator if sum_weights_denominator > 0 else 0.0
+            bit = 1 if avg_normalized_signal > 0.0 else 0
             len_encoded_extracted.append(bit)
-            logging.info(f"Length bit {i}, sum_corr={sum_corr:.4f}, c={c:.4f}, bit={bit}, K={current_K}") # alpha logging REMOVED
+            logging.info(f"Length bit {i}, avg_norm_signal={avg_normalized_signal:.4f}, bit={bit}, K={current_K}, alpha_est={current_alpha_estimate:.2f}")
 
         # Decode length
         len_bits_extracted = []
@@ -265,41 +304,87 @@ def extract(image_path, key, K):
 
         # Validate length and ensure it's a multiple of 128 bits (16 bytes)
         if L > 0 and L <= 1024 and L % 128 == 0:  # Ensure L corresponds to a multiple of 16 bytes
+            logging.info(f"Extracted valid length {L} on attempt {attempt+1}")
             break
+        
         attempt += 1
-        # current_alpha = min(current_alpha * 2, max_alpha) # REMOVED
-        current_K = min(current_K * 2, N)
-        # logging.info(f"Attempt {attempt} failed, adjusting alpha to {current_alpha}, K to {current_K}") # REMOVED alpha logging
-        logging.info(f"Attempt {attempt} failed, adjusting K to {current_K}")
+        logging.info(f"Attempt {attempt} failed to extract valid length. Current K={current_K}, alpha_est={current_alpha_estimate:.2f}")
+        
+        K_ADJUSTMENT_ATTEMPTS = (max_attempts // 3) * 2
+        if attempt < K_ADJUSTMENT_ATTEMPTS or attempt % 3 != 0:
+            current_K = min(current_K * 2, N)
+        else:
+            if alpha_adjust_direction == 1:
+                current_alpha_estimate = min(current_alpha_estimate * alpha_adjustment_factor, max_alpha_estimate)
+                alpha_increases_done += 1
+                if alpha_increases_done >= change_alpha_direction_threshold or current_alpha_estimate >= max_alpha_estimate:
+                    alpha_adjust_direction = -1
+                    alpha_decreases_done = 0 
+            else: # alpha_adjust_direction == -1
+                current_alpha_estimate = max(current_alpha_estimate / alpha_adjustment_factor, min_alpha_estimate)
+                alpha_decreases_done += 1
+                if alpha_decreases_done >= change_alpha_direction_threshold or current_alpha_estimate <= min_alpha_estimate:
+                    alpha_adjust_direction = 1
+                    alpha_increases_done = 0
+        logging.info(f"Adjusting parameters for next attempt: new K={current_K}, new alpha_est={current_alpha_estimate:.2f}")
 
 
     if attempt >= max_attempts:
-        raise ValueError("Failed to extract valid length after maximum attempts")
+        logging.error(f"Failed to extract valid length after {max_attempts} attempts. Final K={current_K}, alpha_est={current_alpha_estimate:.2f}")
+        raise ValueError(f"Failed to extract valid length after {max_attempts} attempts. Max K reached: {current_K}, final alpha estimate: {current_alpha_estimate:.2f}. Ensure key is correct and image is not overly distorted.")
 
     # Extract message bits
     num_chunks = (L + 3) // 4
     M_msg = num_chunks * 7
     msg_encoded_extracted = []
-    attempt = 0
-    # current_alpha = 0.1 # REMOVED
-    current_K = K
+    attempt = 0 # Reset attempt counter for message extraction
+    # Reset K to initial K for message extraction, alpha parameters are also reset
+    current_K = K 
 
-    while attempt < max_attempts:
+    # Initialize Adaptive Parameters for message extraction
+    current_alpha_estimate = 1.0
+    max_alpha_estimate = 5.0
+    min_alpha_estimate = 0.1
+    alpha_adjustment_factor = 1.5
+    change_alpha_direction_threshold = 2
+    alpha_increases_done = 0
+    alpha_decreases_done = 0
+    alpha_adjust_direction = 1
+
+    logging.info(f"Starting message extraction for L={L}. Initial K={current_K}, Initial AlphaEst={current_alpha_estimate:.2f}")
+    while attempt < max_attempts: # Use the same max_attempts for message part
         msg_encoded_extracted = []
-        for i in tqdm(range(28, 28 + M_msg), desc=f"Extracting message (attempt {attempt+1})"):
+        for i in tqdm(range(28, 28 + M_msg), desc=f"Extracting message (attempt {attempt+1}/{max_attempts}, K={current_K}, alpha_est={current_alpha_estimate:.2f})"):
             random.seed(key + i)
             idx_list = random.sample(range(N), min(current_K, N))
             p = [random.choice([1, -1]) for _ in range(len(idx_list))]
-            sum_corr = 0
-            count = 0
-            for k, idx in enumerate(idx_list):
-                bi, bj, c, u, v = pool[idx]
-                sum_corr += dct_blocks[c][bi * num_blocks_j + bj][u, v] * p[k]
-                count += 1
-            c = sum_corr / count if count > 0 else 0
-            bit = 1 if c > 0 else 0
+
+            sum_weighted_signal_numerator = 0.0
+            sum_weights_denominator = 0.0
+            # num_coeffs_processed = 0 # As above, removed for now
+            for k_loop_idx, pool_idx in enumerate(idx_list):
+                bi_pool, bj_pool, c_channel_idx, u, v = pool[pool_idx]
+                block_linear_idx = bi_pool * num_blocks_j + bj_pool
+                variance = block_variances_channels[c_channel_idx][block_linear_idx]
+
+                if variance < 1e-3: # Skip coefficients from very low-variance blocks
+                    logging.debug(f"Bit {i-28}: Skipping coefficient from block (bi={bi_pool}, bj={bj_pool}, c={c_channel_idx}) due to very low variance: {variance:.4f}")
+                    continue
+
+                adaptive_component = (1 + variance / 1000.0)
+                adaptive_component = max(adaptive_component, 0.01)
+
+                dct_coeff_val = dct_blocks[c_channel_idx][block_linear_idx][u, v]
+                pattern_val = p[k_loop_idx]
+
+                sum_weighted_signal_numerator += dct_coeff_val * pattern_val
+                sum_weights_denominator += adaptive_component
+                # num_coeffs_processed += 1 # If re-added
+            
+            avg_normalized_signal = sum_weighted_signal_numerator / sum_weights_denominator if sum_weights_denominator > 0 else 0.0
+            bit = 1 if avg_normalized_signal > 0.0 else 0
             msg_encoded_extracted.append(bit)
-            logging.info(f"Message bit {i-28}, sum_corr={sum_corr:.4f}, c={c:.4f}, bit={bit}, K={current_K}") # alpha logging REMOVED
+            logging.info(f"Message bit {i-28}, avg_norm_signal={avg_normalized_signal:.4f}, bit={bit}, K={current_K}, alpha_est={current_alpha_estimate:.2f}")
 
         # Decode message
         msg_bits_extracted = []
@@ -320,23 +405,43 @@ def extract(image_path, key, K):
             message_bytes = decrypted_bytes[:-4]
             computed_crc = compute_crc32(message_bytes)
             if received_crc == computed_crc:
-                msg_extracted = message_bytes.decode('utf-8')
-                if all(32 <= ord(char) <= 126 for char in msg_extracted):
-                    logging.info("CRC verified successfully")
-                    break
+                msg_extracted = message_bytes.decode('utf-8', errors='ignore') # Ignore errors for now, CRC is the main check
+                # Basic check if message seems plausible, can be improved
+                if len(msg_extracted) > 0 and all(32 <= ord(char) <= 126 or char == '\n' or char == '\r' for char in msg_extracted): # Allow more chars
+                    logging.info(f"CRC verified successfully for message on attempt {attempt+1}")
+                    break 
+                else:
+                    logging.warning(f"CRC matched but message content seems invalid on attempt {attempt+1}: {msg_extracted[:30]}... K={current_K}, AlphaEst={current_alpha_estimate:.2f}") # Log snippet
             else:
-                logging.warning(f"CRC mismatch: received {received_crc}, computed {computed_crc}")
-        except (UnicodeDecodeError, ValueError) as e:
-            logging.error(f"Decoding error: {str(e)}")
+                logging.warning(f"Attempt {attempt+1}/{max_attempts}: CRC mismatch. Received={received_crc}, Computed={computed_crc}. K={current_K}, AlphaEst={current_alpha_estimate:.2f}")
+        except (UnicodeDecodeError, ValueError, IndexError) as e: # Added IndexError for short messages
+            logging.error(f"Attempt {attempt+1}/{max_attempts}: Message decoding error: {str(e)}. K={current_K}, AlphaEst={current_alpha_estimate:.2f}")
 
         attempt += 1
-        # current_alpha = min(current_alpha * 2, max_alpha) # REMOVED
-        current_K = min(current_K * 2, N)
-        # logging.info(f"Attempt {attempt} failed, adjusting alpha to {current_alpha}, K to {current_K}") # REMOVED alpha logging
-        logging.info(f"Attempt {attempt} failed, adjusting K to {current_K}")
+        logging.info(f"Attempt {attempt} failed to extract valid message. Current K={current_K}, alpha_est={current_alpha_estimate:.2f}")
+
+        K_ADJUSTMENT_ATTEMPTS = (max_attempts // 3) * 2
+        if attempt < K_ADJUSTMENT_ATTEMPTS or attempt % 3 != 0:
+            current_K = min(current_K * 2, N)
+        else:
+            if alpha_adjust_direction == 1:
+                current_alpha_estimate = min(current_alpha_estimate * alpha_adjustment_factor, max_alpha_estimate)
+                alpha_increases_done += 1
+                if alpha_increases_done >= change_alpha_direction_threshold or current_alpha_estimate >= max_alpha_estimate:
+                    alpha_adjust_direction = -1
+                    alpha_decreases_done = 0
+            else: # alpha_adjust_direction == -1
+                current_alpha_estimate = max(current_alpha_estimate / alpha_adjustment_factor, min_alpha_estimate)
+                alpha_decreases_done += 1
+                if alpha_decreases_done >= change_alpha_direction_threshold or current_alpha_estimate <= min_alpha_estimate:
+                    alpha_adjust_direction = 1
+                    alpha_increases_done = 0
+        logging.info(f"Adjusting parameters for next attempt: new K={current_K}, new alpha_est={current_alpha_estimate:.2f}")
+
 
     if attempt >= max_attempts:
-        raise ValueError("Failed to extract valid message after maximum attempts")
+        logging.error(f"Failed to extract valid message after {max_attempts} attempts (L={L}). Final K={current_K}, alpha_est={current_alpha_estimate:.2f}")
+        raise ValueError(f"Failed to extract valid message after {max_attempts} attempts (L={L}). Max K reached: {current_K}, final alpha estimate: {current_alpha_estimate:.2f}. CRC or decoding failed. Ensure key is correct and image integrity.")
 
     return msg_extracted
 
