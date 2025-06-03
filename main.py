@@ -208,7 +208,8 @@ def _extract_message_for_length(
     averaged_dct_blocks_data,
     main_max_attempts_for_adaptive_params # For K_ADJUSTMENT_ATTEMPTS_MSG logic
 ):
-    max_avg_bit_confidence_for_this_L_call = 0.0 # Tracks max avg bit confidence over all attempts for this L
+    max_avg_bit_confidence_for_this_L_call = 0.0
+    num_non_ascii_replacements_final = 0 # For this specific successful attempt
 
     msg_encoded_extracted = []
     current_K_msg = initial_K_for_msg
@@ -276,27 +277,64 @@ def _extract_message_for_length(
 
         if len(msg_bits_extracted) != target_L:
             logging.warning(f"Attempt {attempt_msg_num+1} for L={target_L}: Decoded bits length {len(msg_bits_extracted)} != target {target_L}.")
-            # Fall through to K/Alpha adjustment
+            # Fall through to K/Alpha adjustment, update max_avg_bit_confidence before potential K/Alpha adjustment
+            max_avg_bit_confidence_for_this_L_call = max(max_avg_bit_confidence_for_this_L_call, avg_confidence_this_attempt)
         else:
             extracted_bytes_msg = [int(''.join(map(str, msg_bits_extracted[k_byte:k_byte+8])), 2) for k_byte in range(0, target_L, 8)]
             try:
                 decrypted_bytes_msg = aes_decrypt(bytes(extracted_bytes_msg), key_param)
                 received_crc_msg = int.from_bytes(decrypted_bytes_msg[-4:], 'big')
-                message_bytes_final = decrypted_bytes_msg[:-4]
-                computed_crc_msg = compute_crc32(message_bytes_final)
+                message_bytes_for_content_check = decrypted_bytes_msg[:-4] # For content check
+                computed_crc_msg = compute_crc32(message_bytes_for_content_check)
 
                 if received_crc_msg == computed_crc_msg:
-                    final_msg_str = message_bytes_final.decode('utf-8', errors='ignore')
-                    if all(32 <= ord(char) <= 126 or char in ['\n', '\r'] for char in final_msg_str) or not final_msg_str:
-                        logging.info(f"Attempt {attempt_msg_num+1} for L={target_L}: CRC VERIFIED. Message extracted. Confidence for this attempt: {avg_confidence_this_attempt*100:.1f}%.")
-                        return final_msg_str, avg_confidence_this_attempt # Return confidence of this successful attempt
+                    processed_message_bytes = bytearray()
+                    non_ascii_replacements = 0
+                    replaced_indices = []
+                    final_msg_str = ""
+
+                    if not message_bytes_for_content_check:
+                        final_msg_str = "" # Empty message is valid
                     else:
-                        logging.warning(f"Attempt {attempt_msg_num+1} for L={target_L}: CRC matched but message content invalid. K={current_K_msg}, Alpha={current_alpha_estimate_msg:.2f}. Avg bit confidence: {avg_confidence_this_attempt*100:.1f}%.")
-                else:
+                        for idx, byte_val in enumerate(message_bytes_for_content_check):
+                            if not (32 <= byte_val <= 126): # Check for printable ASCII
+                                processed_message_bytes.append(ord('?'))
+                                non_ascii_replacements += 1
+                                replaced_indices.append(idx)
+                            else:
+                                processed_message_bytes.append(byte_val)
+                        final_msg_str = processed_message_bytes.decode('utf-8', errors='replace')
+
+                        if non_ascii_replacements > 0:
+                            logging.warning(f"L={target_L}, Attempt {attempt_msg_num+1}: Replaced {non_ascii_replacements} non-printable ASCII characters with '?'. Original indices: {replaced_indices}")
+
+                        if non_ascii_replacements == len(message_bytes_for_content_check) and len(message_bytes_for_content_check) > 0:
+                            logging.warning(f"L={target_L}, Attempt {attempt_msg_num+1}: Message content entirely non-printable ASCII. Discarding this attempt (CRC was ok). Avg bit confidence: {avg_confidence_this_attempt*100:.1f}%.")
+                            max_avg_bit_confidence_for_this_L_call = max(max_avg_bit_confidence_for_this_L_call, avg_confidence_this_attempt)
+                            # This attempt is considered failed due to content, continue K/Alpha loop
+                            # (K/Alpha adjustment logic is below and will be hit if we 'continue')
+                            # No 'continue' here, let it fall through to K/Alpha adjustment for the next attempt_msg_num
+                        else: # Content is valid or partially replaced
+                            logging.info(f"Attempt {attempt_msg_num+1} for L={target_L}: CRC VERIFIED. Message content valid (or fixed). Confidence: {avg_confidence_this_attempt*100:.1f}%.")
+                            if non_ascii_replacements > 0:
+                                logging.info(f"Note for L={target_L}: {non_ascii_replacements} char(s) were replaced with '?'.")
+                            num_non_ascii_replacements_final = non_ascii_replacements
+                            return final_msg_str, avg_confidence_this_attempt, num_non_ascii_replacements_final
+
+                    # This case is for empty message_bytes_for_content_check (empty original message)
+                    if not message_bytes_for_content_check:
+                        logging.info(f"Attempt {attempt_msg_num+1} for L={target_L}: CRC VERIFIED. Empty message extracted. Confidence: {avg_confidence_this_attempt*100:.1f}%.")
+                        return "", avg_confidence_this_attempt, 0
+
+
+                else: # CRC Mismatch
                     logging.warning(f"Attempt {attempt_msg_num+1} for L={target_L}: CRC mismatch. Rec={received_crc_msg}, Comp={computed_crc_msg}. K={current_K_msg}, Alpha={current_alpha_estimate_msg:.2f}")
+                    max_avg_bit_confidence_for_this_L_call = max(max_avg_bit_confidence_for_this_L_call, avg_confidence_this_attempt)
             except (UnicodeDecodeError, ValueError, IndexError) as e_msg_extract:
                 logging.error(f"Attempt {attempt_msg_num+1} for L={target_L}: Decode/CRC error: {str(e_msg_extract)}. K={current_K_msg}, Alpha={current_alpha_estimate_msg:.2f}")
+                max_avg_bit_confidence_for_this_L_call = max(max_avg_bit_confidence_for_this_L_call, avg_confidence_this_attempt)
 
+        # If we got here, it means this attempt (for this K/Alpha) failed (CRC, bad content, or other error)
         # Adjust K/Alpha for next attempt_msg_num
         K_ADJUSTMENT_ATTEMPTS_MSG = (max_attempts_for_msg // 3) * 2 # Use local max_attempts_for_msg
         if attempt_msg_num < max_attempts_for_msg -1 : # Avoid adjustment on last failed attempt
@@ -317,14 +355,15 @@ def _extract_message_for_length(
             logging.info(f"Adjusting params for L={target_L} for next attempt: K={current_K_msg}, Alpha={current_alpha_estimate_msg:.2f}")
 
     logging.warning(f"Message extraction attempt for L={target_L} failed to verify after {max_attempts_for_msg} attempts. Max avg bit confidence over these attempts: {max_avg_bit_confidence_for_this_L_call*100:.1f}%.")
-    return None, max_avg_bit_confidence_for_this_L_call
+    return None, max_avg_bit_confidence_for_this_L_call, 0 # 0 replacements as no message was finalized
 
 
 def extract(image_path, key, K, preprocess=False):
     """Extract a secret message from a color image with noise resilience."""
     initial_K_arg = K # Store the initial K value passed as argument
-    final_message_confidence_score = -1.0 # Confidence of the successfully extracted message
-    max_confidence_from_failed_L_attempts = 0.0 # Max confidence seen during failed L attempts (fallback or main msg extract)
+    final_message_confidence_score = -1.0
+    max_confidence_from_failed_L_attempts = 0.0
+    final_num_replacements = 0
 
     # Validate image format
     valid_extensions = ['.png', '.jpg', '.jpeg']
@@ -340,24 +379,37 @@ def extract(image_path, key, K, preprocess=False):
 
     # Optional Pre-processing
     if preprocess:
-        logging.info("Pre-processing: Enabled.")
-        # Gaussian Blur
-        img_processed = cv2.GaussianBlur(img, (3, 3), 0.5)
-        logging.info("Pre-processing: Applied Gaussian blur (kernel=3x3, sigma=0.5).")
+        logging.info("Pre-processing: Enabled by user flag.")
+        # _log_progress("[Progress] Phase 1: Applying image pre-processing...") # Progress log will be added in Step 8
 
-        # Contrast Normalization (CLAHE)
-        lab = cv2.cvtColor(img_processed, cv2.COLOR_BGR2LAB)
-        l_channel, a_channel, b_channel = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        cl = clahe.apply(l_channel)
-        limg = cv2.merge((cl, a_channel, b_channel))
-        img_final_processed = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-        logging.info("Pre-processing: Applied CLAHE contrast normalization (clipLimit=2.0, tileGridSize=(8,8)).")
-        img = img_final_processed
+        gray_img_for_variance = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        overall_variance = np.var(gray_img_for_variance)
+        variance_threshold_for_skipping_preprocess = 1000
+        logging.info(f"Overall image variance for pre-processing decision: {overall_variance:.2f}. Threshold for skipping: {variance_threshold_for_skipping_preprocess}")
+
+        if overall_variance > variance_threshold_for_skipping_preprocess:
+            logging.info("Proceeding with pre-processing operations (blur and CLAHE).")
+            # Gaussian Blur
+            img_processed = cv2.GaussianBlur(img, (3, 3), 1.0) # Sigma updated to 1.0
+            logging.info("Pre-processing: Applied Gaussian blur (kernel=3x3, sigma=1.0).")
+
+            # Contrast Normalization (CLAHE)
+            lab = cv2.cvtColor(img_processed, cv2.COLOR_BGR2LAB)
+            l_channel, a_channel, b_channel = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            cl = clahe.apply(l_channel)
+            limg = cv2.merge((cl, a_channel, b_channel))
+            img_final_processed = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+            logging.info("Pre-processing: Applied CLAHE contrast normalization (clipLimit=2.0, tileGridSize=(8,8)).")
+            img = img_final_processed
+        else:
+            logging.info(f"Pre-processing (blur and CLAHE) skipped: Image variance ({overall_variance:.2f}) is below/equal to threshold. Original image will be used.")
+            # img remains the original image
     else:
-        logging.info("Pre-processing: Skipped (flag not set).")
+        logging.info("Pre-processing: Skipped (user flag not set).")
     
     # Pad image to multiple of 8 if necessary
+            # Pad image to multiple of 8 if necessary
     h, w, _ = img.shape
     pad_h = (8 - h % 8) % 8
     pad_w = (8 - w % 8) % 8
@@ -403,8 +455,8 @@ def extract(image_path, key, K, preprocess=False):
     logging.info(f"Coefficient pool size (averaged channels): {N}")
 
     # --- Primary Length Extraction ---
-    L_final = -1 # Final determined length, initialized to -1 (invalid)
-    final_message_from_extraction = None # Used to store message from helper
+    L_final = -1
+    final_message_from_extraction = None
 
     # Parameters for the primary length extraction loop
     current_K_len = initial_K_arg
@@ -535,15 +587,16 @@ def extract(image_path, key, K, preprocess=False):
         for candidate_L in fallback_L_candidates:
             logging.info(f"Fallback: Attempting message extraction with L_candidate={candidate_L}.")
             # Call helper for message extraction
-            result_message, confidence_from_call = _extract_message_for_length(
+            result_message, confidence_from_call, replacements_in_call = _extract_message_for_length(
                 candidate_L, initial_K_arg, fallback_max_attempts, key, N, pool,
                 num_blocks_j, averaged_block_variances, averaged_dct_blocks, max_attempts_len
             )
             if result_message is not None:
                 L_final = candidate_L
                 final_message_from_extraction = result_message
-                final_message_confidence_score = confidence_from_call # Confidence of the successful message
-                logging.info(f"Fallback successful: Valid message extracted with L={L_final}. Confidence: {final_message_confidence_score*100:.1f}%.")
+                final_message_confidence_score = confidence_from_call
+                final_num_replacements = replacements_in_call
+                logging.info(f"Fallback successful: Valid message extracted with L={L_final}. Confidence: {final_message_confidence_score*100:.1f}%. Replacements: {final_num_replacements}.")
                 break
             else:
                 max_confidence_from_failed_L_attempts = max(max_confidence_from_failed_L_attempts, confidence_from_call)
@@ -566,13 +619,14 @@ def extract(image_path, key, K, preprocess=False):
 
     if final_message_from_extraction is None:
         logging.info(f"Proceeding to main message extraction with L={L_final} (determined from primary attempts).")
-        result_message, confidence_from_call = _extract_message_for_length(
+        result_message, confidence_from_call, replacements_in_call = _extract_message_for_length(
             L_final, initial_K_arg, max_attempts_len, key, N, pool,
             num_blocks_j, averaged_block_variances, averaged_dct_blocks, max_attempts_len
         )
         if result_message is not None:
             final_message_from_extraction = result_message
             final_message_confidence_score = confidence_from_call
+            final_num_replacements = replacements_in_call
         else:
             max_confidence_from_failed_L_attempts = max(max_confidence_from_failed_L_attempts, confidence_from_call)
             error_msg = (f"Message extraction failed for L={L_final} after all attempts (max {max_attempts_len} attempts per L). "
@@ -582,11 +636,10 @@ def extract(image_path, key, K, preprocess=False):
             logging.error(error_msg)
             raise ValueError(error_msg)
 
-    # If we reach here, final_message_from_extraction should be set
     if final_message_from_extraction is not None:
-        logging.info(f"Message extracted successfully. Confidence: {final_message_confidence_score*100:.1f}%. Message: '{final_message_from_extraction}'")
+        logging.info(f"Message extracted successfully. Confidence: {final_message_confidence_score*100:.1f}%. Replacements: {final_num_replacements}. Message: '{final_message_from_extraction}'")
 
-    return final_message_from_extraction, final_message_confidence_score
+    return final_message_from_extraction, final_message_confidence_score, final_num_replacements
 
 
 # (The old message extraction loop is now removed as its logic is in _extract_message_for_length)
@@ -660,17 +713,20 @@ if __name__ == "__main__":
             print(f"Message embedded successfully into {args.output}")
         elif args.command == "extract":
             extracted_data = extract(args.image, args.key, args.K, preprocess=args.preprocess)
-            if extracted_data:
-                message, confidence = extracted_data
+            if extracted_data : # Check if not None, in case of future direct None returns from extract
+                message, confidence, num_replacements = extracted_data
                 if message is not None:
-                    print(f"Extracted message: {message}, Confidence: {confidence*100:.1f}%")
+                    print_msg = f"Extracted message: {message}, Confidence: {confidence*100:.1f}%"
+                    if num_replacements > 0:
+                        print_msg += f" (Note: {num_replacements} non-ASCII char(s) replaced with '?')"
+                    print(print_msg)
                 else:
-                    # This case should ideally be caught by ValueErrors within extract.
-                    # If extract returns (None, some_confidence), it means an error occurred before a message was formed.
-                    print(f"Extraction failed to retrieve a message. Maximum observed confidence during attempts: {confidence*100:.1f}%.")
+                    # This path should be rare as extract() is designed to raise ValueErrors on failure
+                    print(f"Extraction failed to retrieve a message. Max observed confidence during failed attempts: {confidence*100:.1f}%.")
             else:
-                # Should also be caught by ValueErrors, but as a fallback:
-                print("Extraction failed.")
+                 # This path implies extract() returned None, which it currently doesn't (it raises errors).
+                 # Adding for robustness in case of future changes to extract's error handling.
+                print("Extraction process did not yield a result or failed unexpectedly before raising a specific error.")
     except Exception as e:
         logging.error(f"Error: {str(e)}")
         print(f"Error: {str(e)}")
