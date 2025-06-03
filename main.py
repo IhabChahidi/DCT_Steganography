@@ -454,7 +454,7 @@ def _extract_message_for_length(
     return None, max_avg_bit_confidence_for_this_L_call, 0, final_K_for_this_L_call, final_alpha_for_this_L_call
 
 
-def extract(image_path, key, K, preprocess=False):
+def extract(image_path, key, K, preprocess=False, blur_sigma=0.7, clahe_clip_limit=1.5, variance_threshold=1000.0):
     initial_K_arg = K
     final_extracted_message = None
     final_message_confidence_score = 0.0 # Default to 0
@@ -490,27 +490,27 @@ def extract(image_path, key, K, preprocess=False):
         logging.info("Pre-processing: Enabled by user flag.")
         gray_img_for_variance = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         overall_variance = np.var(gray_img_for_variance)
-        variance_threshold_for_skipping_preprocess = 1000
-        logging.info(f"Overall image variance for pre-processing decision: {overall_variance:.2f}. Threshold: {variance_threshold_for_skipping_preprocess}")
+        variance_threshold_for_skipping_preprocess = variance_threshold
+        logging.info(f"Overall image variance for pre-processing decision: {overall_variance:.2f}. Threshold: {variance_threshold_for_skipping_preprocess:.2f}")
 
         if overall_variance > variance_threshold_for_skipping_preprocess:
-            logging.info("Proceeding with pre-processing operations (blur and CLAHE).")
-            sigma_blur = 0.7
+            logging.info(f"Proceeding with pre-processing operations (blur and CLAHE) as overall variance {overall_variance:.2f} > threshold {variance_threshold_for_skipping_preprocess:.2f}.")
+            sigma_blur = blur_sigma
             img_blurred = cv2.GaussianBlur(img, (3, 3), sigma_blur)
-            logging.info(f"Pre-processing: Applied Gaussian blur (kernel=3x3, sigma={sigma_blur}).")
+            logging.info(f"Pre-processing: Applied Gaussian blur (kernel=3x3, sigma={sigma_blur:.2f}).")
 
-            clip_limit_clahe = 1.5
+            clip_limit_clahe = clahe_clip_limit
             lab = cv2.cvtColor(img_blurred, cv2.COLOR_BGR2LAB)
             l_channel, a_channel, b_channel = cv2.split(lab)
             clahe = cv2.createCLAHE(clipLimit=clip_limit_clahe, tileGridSize=(8, 8))
             cl = clahe.apply(l_channel)
             limg = cv2.merge((cl, a_channel, b_channel))
             img_processed_final = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-            logging.info(f"Pre-processing: Applied CLAHE contrast normalization (clipLimit={clip_limit_clahe}, tileGridSize=(8,8)).")
+            logging.info(f"Pre-processing: Applied CLAHE contrast normalization (clipLimit={clip_limit_clahe:.2f}, tileGridSize=(8,8)).")
             img = img_processed_final
             preprocess_actually_applied = True
         else:
-            logging.info(f"Pre-processing (blur and CLAHE) skipped: Image variance ({overall_variance:.2f}) is not high enough. Original image used.")
+            logging.info(f"Pre-processing (blur and CLAHE) skipped: Image variance ({overall_variance:.2f}) is not > threshold ({variance_threshold_for_skipping_preprocess:.2f}). Original image used.")
     else:
         logging.info("Pre-processing: Skipped (user flag not set).")
     actionable_error_message_parts.append(f"Pre-processed={preprocess_actually_applied}")
@@ -884,6 +884,9 @@ if __name__ == "__main__":
     extract_parser.add_argument("--key", type=int, required=True, help="Key used during embedding")
     extract_parser.add_argument("--K", type=int, default=500, help="Initial coefficients per bit (default: 500)")
     extract_parser.add_argument("--preprocess", action="store_true", help="Enable pre-processing (Gaussian blur, contrast normalization) on the input image before extraction.")
+    extract_parser.add_argument("--blur-sigma", type=float, default=0.7, help="Sigma for Gaussian blur during pre-processing (default: 0.7)")
+    extract_parser.add_argument("--clahe-clip-limit", type=float, default=1.5, help="Clip limit for CLAHE during pre-processing (default: 1.5)")
+    extract_parser.add_argument("--variance-threshold", type=float, default=1000, help="Variance threshold to skip pre-processing (default: 1000)")
 
     args = parser.parse_args()
 
@@ -914,7 +917,7 @@ if __name__ == "__main__":
             summary_initial_K = args.K # Capture initial K for extract summary
             summary_preprocessed = args.preprocess # Will be updated if preprocess_actually_applied is different
 
-            extracted_data = extract(args.image, args.key, args.K, preprocess=args.preprocess)
+            extracted_data = extract(args.image, args.key, args.K, preprocess=args.preprocess, blur_sigma=args.blur_sigma, clahe_clip_limit=args.clahe_clip_limit, variance_threshold=args.variance_threshold)
 
             # Unpack all returned values from the extract function
             (final_extracted_message, final_message_confidence_score, final_num_replacements,
